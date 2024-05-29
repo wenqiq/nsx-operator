@@ -9,8 +9,13 @@ import (
 )
 
 const (
-	AccessModePublic  string = "Public"
-	AccessModePrivate string = "Private"
+	AccessModePublic    string = "Public"
+	AccessModePrivate   string = "Private"
+	AccessModeProject   string = "Project"
+	LbServiceSizeSmall  string = "SMALL"
+	LbServiceSizeMedium string = "MEDIUM"
+	LbServiceSizeLarge  string = "LARGE"
+	LbServiceSizeXlarge string = "XLARGE"
 )
 
 // VPCNetworkConfigurationSpec defines the desired state of VPCNetworkConfiguration.
@@ -19,38 +24,41 @@ const (
 // in a Namespace's VPCNetworkConfiguration, the Namespace will use the value
 // in the default VPCNetworkConfiguration.
 type VPCNetworkConfigurationSpec struct {
-	// PolicyPath of Tier0 or Tier0 VRF gateway.
-	DefaultGatewayPath string `json:"defaultGatewayPath,omitempty"`
-	// Edge cluster path on which the networking elements will be created.
-	EdgeClusterPath string `json:"edgeClusterPath,omitempty"`
 	// NSX-T Project the Namespace associated with.
-	NSXTProject string `json:"nsxtProject,omitempty"`
-	// NSX-T IPv4 Block paths used to allocate external Subnets.
-	// +kubebuilder:validation:MinItems=0
-	// +kubebuilder:validation:MaxItems=5
-	ExternalIPv4Blocks []string `json:"externalIPv4Blocks,omitempty"`
-	// Private IPv4 CIDRs used to allocate Private Subnets.
-	// +kubebuilder:validation:MinItems=0
-	// +kubebuilder:validation:MaxItems=5
-	PrivateIPv4CIDRs []string `json:"privateIPv4CIDRs,omitempty"`
-	// Default size of Subnet based upon estimated workload count.
-	// Defaults to 26.
-	// +kubebuilder:default=26
-	DefaultIPv4SubnetSize int `json:"defaultIPv4SubnetSize,omitempty"`
-	// DefaultSubnetAccessMode defines the access mode of the default SubnetSet for PodVM and VM.
-	// Must be Public or Private.
-	// +kubebuilder:validation:Enum=Public;Private
-	DefaultSubnetAccessMode string `json:"defaultSubnetAccessMode,omitempty"`
+	NsxProject string `json:"nsxProject,omitempty"`
+
+	// VpcConnectivityProfile ID. This profile has configuration related to create VPC transit gateway attachment.
+	VpcConnectivityProfile string `json:"vpcConnectivityProfile,omitempty"`
+
+	// The path of the configuration profile of the VPC services. This will be an collection of default dhcp and subnet profiles. The default vpc service profile will be created as part of new project create workflow. That will be used as the default for all VPC created under that project. The default value will be project specific default VPC profile.
+	VpcServiceProfile string `json:"vpcServiceProfile,omitempty"`
+
+	// Private IPs.
+	PrivateIPs []string `json:"privateIPs,omitempty"`
+
 	// ShortID specifies Identifier to use when displaying VPC context in logs.
-	// Less than or equal to 8 characters.
+	// Less than equal to 8 characters.
 	// +kubebuilder:validation:MaxLength=8
 	// +optional
 	ShortID string `json:"shortID,omitempty"`
+
 	// NSX path of the VPC the Namespace associated with.
 	// If vpc is set, only defaultIPv4SubnetSize and defaultSubnetAccessMode
 	// take effect, other fields are ignored.
 	// +optional
 	VPC string `json:"vpc,omitempty"`
+
+	// +kubebuilder:validation:Enum=SMALL;MEDIUM;LARGE;XLARGE
+	LbServiceSize string `json:"lbServiceSize,omitempty"`
+
+	// Default size of Subnet based upon estimated workload count.
+	// Defaults to 26.
+	// +kubebuilder:default=26
+	DefaultSubnetSize int `json:"defaultSubnetSize,omitempty"`
+	// PodSubnetAccessMode defines the access mode of the default SubnetSet for PodVM.
+	// Must be Public or Private.
+	// +kubebuilder:validation:Enum=Public;Private;Project
+	PodSubnetAccessMode string `json:"podSubnetAccessMode,omitempty"`
 }
 
 // VPCNetworkConfigurationStatus defines the observed state of VPCNetworkConfiguration
@@ -69,15 +77,14 @@ type VPCInfo struct {
 
 // +genclient
 // +genclient:nonNamespaced
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-//+kubebuilder:storageversion
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:storageversion
 
 // VPCNetworkConfiguration is the Schema for the vpcnetworkconfigurations API.
 // +kubebuilder:resource:scope="Cluster"
-// +kubebuilder:printcolumn:name="NSXTProject",type=string,JSONPath=`.spec.nsxtProject`,description="NSXTProject the Namespace associated with"
-// +kubebuilder:printcolumn:name="ExternalIPv4Blocks",type=string,JSONPath=`.spec.externalIPv4Blocks`,description="ExternalIPv4Blocks assigned to the Namespace"
-// +kubebuilder:printcolumn:name="PrivateIPv4CIDRs",type=string,JSONPath=`.spec.privateIPv4CIDRs`,description="PrivateIPv4CIDRs assigned to the Namespace"
+// +kubebuilder:printcolumn:name="NsxProject",type=string,JSONPath=`.spec.nsxProject`,description="NsxProject the Namespace associated with"
+// +kubebuilder:printcolumn:name="PrivateIPs",type=string,JSONPath=`.spec.privateIPs`,description="PrivateIPs assigned to the Namespace"
 type VPCNetworkConfiguration struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -86,7 +93,7 @@ type VPCNetworkConfiguration struct {
 	Status VPCNetworkConfigurationStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // VPCNetworkConfigurationList contains a list of VPCNetworkConfiguration.
 type VPCNetworkConfigurationList struct {

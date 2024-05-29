@@ -13,7 +13,7 @@ func IsVPCChanged(nc common.VPCNetworkConfigInfo, vpc *model.Vpc) bool {
 		return true
 	}
 
-	if len(nc.PrivateIPv4CIDRs) != len(vpc.PrivateIpv4Blocks) {
+	if len(nc.PrivateIPs) != len(vpc.PrivateIpv4Blocks) {
 		return true
 	}
 

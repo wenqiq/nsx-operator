@@ -86,7 +86,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					VPCPath:                 *createdVpc.Path,
 					DefaultSNATIP:           "",
 					LoadBalancerIPAddresses: "",
-					PrivateIPv4CIDRs:        nc.PrivateIPv4CIDRs,
+					PrivateIPs:              nc.PrivateIPs,
 				}
 				log.Error(err, "update avi rule failed, would retry exponentially", "NetworkInfo", req.NamespacedName)
 				updateFail(r, &ctx, obj, &err, r.Client, state)
@@ -106,7 +106,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					VPCPath:                 *createdVpc.Path,
 					DefaultSNATIP:           "",
 					LoadBalancerIPAddresses: "",
-					PrivateIPv4CIDRs:        nc.PrivateIPv4CIDRs,
+					PrivateIPs:              nc.PrivateIPs,
 				}
 				updateFail(r, &ctx, obj, &err, r.Client, state)
 				return common.ResultRequeueAfter10sec, err
@@ -125,7 +125,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					VPCPath:                 *createdVpc.Path,
 					DefaultSNATIP:           snatIP,
 					LoadBalancerIPAddresses: "",
-					PrivateIPv4CIDRs:        nc.PrivateIPv4CIDRs,
+					PrivateIPs:              nc.PrivateIPs,
 				}
 				updateFail(r, &ctx, obj, &err, r.Client, state)
 				return common.ResultRequeueAfter10sec, err
@@ -137,7 +137,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			VPCPath:                 *createdVpc.Path,
 			DefaultSNATIP:           snatIP,
 			LoadBalancerIPAddresses: cidr,
-			PrivateIPv4CIDRs:        nc.PrivateIPv4CIDRs,
+			PrivateIPs:              nc.PrivateIPs,
 		}
 		updateSuccess(r, &ctx, obj, r.Client, state, nc.Name, path)
 	} else {

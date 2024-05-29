@@ -50,9 +50,7 @@ func buildPrivateIpBlock(networkInfo *v1alpha1.NetworkInfo, nsObj *v1.Namespace,
 	return block
 }
 
-func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNetworkConfigInfo, cluster string, pathMap map[string]string,
-	nsxVPC *model.Vpc) (*model.Vpc,
-	error) {
+func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNetworkConfigInfo, cluster string, pathMap map[string]string, nsxVPC *model.Vpc) (*model.Vpc, error) {
 	vpc := &model.Vpc{}
 	if nsxVPC != nil {
 		// for upgrade case, only check public/private ip block size changing
@@ -67,21 +65,16 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 		vpcName := util.GenerateDisplayName("", "vpc", obj.GetNamespace(), "", cluster)
 		vpc.DisplayName = &vpcName
 		vpc.Id = common.String(string(nsObj.GetUID()))
-		vpc.DefaultGatewayPath = &nc.DefaultGatewayPath
 		vpc.IpAddressType = &DefaultVPCIPAddressType
 
-		siteInfos := []model.SiteInfo{
-			{
-				EdgeClusterPaths: []string{nc.EdgeClusterPath},
-			},
-		}
-		vpc.SiteInfos = siteInfos
 		vpc.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &DefaultLoadBalancerVPCEndpointEnabled}
 		vpc.Tags = util.BuildBasicTags(cluster, obj, nsObj.UID)
 	}
 
-	// update private/public blocks
-	vpc.ExternalIpv4Blocks = nc.ExternalIPv4Blocks
+	vpc.VpcConnectivityProfile = &nc.VpcConnectivityProfile
+	vpc.VpcServiceProfile = &nc.VpcServiceProfile
+
+	// vpc.PrivateIps = nc.PrivateIPs
 	vpc.PrivateIpv4Blocks = util.GetMapValues(pathMap)
 	if nc.ShortID != "" {
 		vpc.ShortId = &nc.ShortID

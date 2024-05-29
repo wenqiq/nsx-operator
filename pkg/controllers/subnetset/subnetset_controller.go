@@ -74,11 +74,12 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 					updateFail(r, &ctx, obj, "")
 					return ResultRequeue, err
 				}
+
 				if obj.Spec.AccessMode == "" {
-					obj.Spec.AccessMode = v1alpha1.AccessMode(vpcNetworkConfig.DefaultSubnetAccessMode)
+					obj.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
 				}
 				if obj.Spec.IPv4SubnetSize == 0 {
-					obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultIPv4SubnetSize
+					obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
 				}
 			}
 			if err := r.Client.Update(ctx, obj); err != nil {

@@ -15,17 +15,13 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - description: NSXTProject the Namespace associated with
-      jsonPath: .spec.nsxtProject
-      name: NSXTProject
+    - description: NsxProject the Namespace associated with
+      jsonPath: .spec.nsxProject
+      name: NsxProject
       type: string
-    - description: ExternalIPv4Blocks assigned to the Namespace
-      jsonPath: .spec.externalIPv4Blocks
-      name: ExternalIPv4Blocks
-      type: string
-    - description: PrivateIPv4CIDRs assigned to the Namespace
-      jsonPath: .spec.privateIPv4CIDRs
-      name: PrivateIPv4CIDRs
+    - description: PrivateIPs assigned to the Namespace
+      jsonPath: .spec.privateIPs
+      name: PrivateIPs
       type: string
     name: v1alpha1
     schema:
@@ -58,54 +54,59 @@ spec:
               in a Namespace's VPCNetworkConfiguration, the Namespace will use the value
               in the default VPCNetworkConfiguration.
             properties:
-              defaultGatewayPath:
-                description: PolicyPath of Tier0 or Tier0 VRF gateway.
-                type: string
-              defaultIPv4SubnetSize:
+              defaultSubnetSize:
                 default: 26
                 description: |-
                   Default size of Subnet based upon estimated workload count.
                   Defaults to 26.
                 type: integer
-              defaultSubnetAccessMode:
+              lbServiceSize:
+                enum:
+                - SMALL
+                - MEDIUM
+                - LARGE
+                - XLARGE
+                type: string
+              nsxProject:
+                description: NSX-T Project the Namespace associated with.
+                type: string
+              podSubnetAccessMode:
                 description: |-
-                  DefaultSubnetAccessMode defines the access mode of the default SubnetSet for PodVM and VM.
+                  PodSubnetAccessMode defines the access mode of the default SubnetSet for PodVM.
                   Must be Public or Private.
                 enum:
                 - Public
                 - Private
+                - Project
                 type: string
-              edgeClusterPath:
-                description: Edge cluster path on which the networking elements will
-                  be created.
-                type: string
-              externalIPv4Blocks:
-                description: NSX-T IPv4 Block paths used to allocate external Subnets.
+              privateIPs:
+                description: Private IPs.
                 items:
                   type: string
-                maxItems: 5
-                minItems: 0
-                type: array
-              nsxtProject:
-                description: NSX-T Project the Namespace associated with.
-                type: string
-              privateIPv4CIDRs:
-                description: Private IPv4 CIDRs used to allocate Private Subnets.
-                items:
-                  type: string
-                maxItems: 5
-                minItems: 0
                 type: array
               shortID:
                 description: |-
                   ShortID specifies Identifier to use when displaying VPC context in logs.
-                  Less than or equal to 8 characters.
+                  Less than equal to 8 characters.
                 maxLength: 8
                 type: string
               vpc:
-                description: NSX path of the VPC the Namespace associated with. If
-                  vpc is set, only defaultIPv4SubnetSize and defaultSubnetAccessMode
+                description: |-
+                  NSX path of the VPC the Namespace associated with.
+                  If vpc is set, only defaultIPv4SubnetSize and defaultSubnetAccessMode
                   take effect, other fields are ignored.
+                type: string
+              vpcConnectivityProfile:
+                description: VpcConnectivityProfile ID. This profile has configuration
+                  related to create VPC transit gateway attachment.
+                type: string
+              vpcServiceProfile:
+                description: The path of the configuration profile of the VPC services.
+                  This will be an collection of default dhcp and subnet profiles.
+                  The default vpc service profile will be created as part of new project
+                  create workflow. That will be used as the default for all VPC created
+                  under that project. The default value will be project specific default
+                  VPC profile.
                 type: string
             type: object
           status:
