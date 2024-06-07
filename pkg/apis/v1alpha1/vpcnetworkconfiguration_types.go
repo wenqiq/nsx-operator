@@ -11,6 +11,7 @@ import (
 const (
 	AccessModePublic  string = "Public"
 	AccessModePrivate string = "Private"
+	AccessModeProject string = "Project"
 )
 
 // VPCNetworkConfigurationSpec defines the desired state of VPCNetworkConfiguration.
