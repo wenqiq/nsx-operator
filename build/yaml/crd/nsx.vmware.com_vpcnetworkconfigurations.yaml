@@ -77,7 +77,7 @@ spec:
                 enum:
                 - Public
                 - Private
-                - Project
+                - PrivateTGW
                 type: string
               privateIPs:
                 description: Private IPs.

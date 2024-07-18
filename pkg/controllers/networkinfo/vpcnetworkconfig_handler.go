@@ -111,7 +111,7 @@ func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*comm
 		Name:                   vpcConfigCR.Name,
 		VpcConnectivityProfile: vpcConfigCR.Spec.VpcConnectivityProfile,
 		VpcServiceProfile:      vpcConfigCR.Spec.VpcServiceProfile,
-		LbServiceSize:          vpcConfigCR.Spec.LbServiceSize,
+		LoadBalancerSize:       vpcConfigCR.Spec.LoadBalancerSize,
 		NsxProject:             project,
 		PrivateIPs:             vpcConfigCR.Spec.PrivateIPs,
 		DefaultSubnetSize:      vpcConfigCR.Spec.DefaultSubnetSize,

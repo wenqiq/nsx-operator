@@ -184,11 +184,11 @@ spec:
                 type: array
               type:
                 description: Type defines the type of this IPPool, Public, Private
-                  or Project.
+                  or PrivateTGW.
                 enum:
                 - Public
                 - Private
-                - Project
+                - PrivateTGW
                 type: string
             type: object
           status:

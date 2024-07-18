@@ -200,7 +200,7 @@ type VPCNetworkConfigInfo struct {
 	Name                   string
 	VpcConnectivityProfile string
 	VpcServiceProfile      string
-	LbServiceSize          string
+	LoadBalancerSize       string
 	NsxProject             string
 	ExternalIPv4Blocks     []string
 	PrivateIPs             []string

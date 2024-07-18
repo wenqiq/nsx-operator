@@ -9,13 +9,13 @@ import (
 )
 
 const (
-	AccessModePublic    string = "Public"
-	AccessModePrivate   string = "Private"
-	AccessModeProject   string = "Project"
-	LbServiceSizeSmall  string = "SMALL"
-	LbServiceSizeMedium string = "MEDIUM"
-	LbServiceSizeLarge  string = "LARGE"
-	LbServiceSizeXlarge string = "XLARGE"
+	AccessModePublic       string = "Public"
+	AccessModePrivate      string = "Private"
+	AccessModeProject      string = "PrivateTGW"
+	LoadBalancerSizeSmall  string = "SMALL"
+	LoadBalancerSizeMedium string = "MEDIUM"
+	LoadBalancerSizeLarge  string = "LARGE"
+	LoadBalancerSizeXlarge string = "XLARGE"
 )
 
 // VPCNetworkConfigurationSpec defines the desired state of VPCNetworkConfiguration.
@@ -49,7 +49,7 @@ type VPCNetworkConfigurationSpec struct {
 	VPC string `json:"vpc,omitempty"`
 
 	// +kubebuilder:validation:Enum=SMALL;MEDIUM;LARGE;XLARGE
-	LbServiceSize string `json:"lbServiceSize,omitempty"`
+	LoadBalancerSize string `json:"lbServiceSize,omitempty"`
 
 	// Default size of Subnet based upon estimated workload count.
 	// Defaults to 26.
@@ -57,7 +57,7 @@ type VPCNetworkConfigurationSpec struct {
 	DefaultSubnetSize int `json:"defaultSubnetSize,omitempty"`
 	// PodSubnetAccessMode defines the access mode of the default SubnetSet for PodVM.
 	// Must be Public or Private.
-	// +kubebuilder:validation:Enum=Public;Private;Project
+	// +kubebuilder:validation:Enum=Public;Private;PrivateTGW
 	PodSubnetAccessMode string `json:"podSubnetAccessMode,omitempty"`
 }
 
