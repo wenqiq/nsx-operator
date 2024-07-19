@@ -24,4 +24,3 @@ spec:
   defaultIPv4SubnetSize: 28
   podSubnetAccessMode: Private
   vpcConnectivityProfile: /orgs/default/projects/wenqi-test/vpc-connectivity-profiles/default
-  vpcServiceProfile: /orgs/default/projects/wenqi-test/vpc-service-profiles/default

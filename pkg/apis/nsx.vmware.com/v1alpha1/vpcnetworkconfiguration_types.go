@@ -27,7 +27,7 @@ type VPCNetworkConfigurationSpec struct {
 	// NSX-T Project the Namespace associated with.
 	NsxProject string `json:"nsxProject,omitempty"`
 
-	// VpcConnectivityProfile ID. This profile has configuration related to create VPC transit gateway attachment.
+	// VpcConnectivityProfile ID. This profile has configuration related to creating VPC transit gateway attachment.
 	VpcConnectivityProfile string `json:"vpcConnectivityProfile,omitempty"`
 
 	// Private IPs.

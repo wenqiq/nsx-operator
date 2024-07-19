@@ -13,5 +13,3 @@ spec:
     - 172.37.0.0/16
   podSubnetAccessMode: Public
   vpcConnectivityProfile: /orgs/default/projects/nsx_operator_e2e_test/vpc-connectivity-profiles/default
-  vpcServiceProfile: /orgs/default/projects/nsx_operator_e2e_test/vpc-service-profiles/default
-  
