@@ -12,10 +12,10 @@ const (
 	AccessModePublic       string = "Public"
 	AccessModePrivate      string = "Private"
 	AccessModeProject      string = "PrivateTGW"
-	LoadBalancerSizeSmall  string = "SMALL"
-	LoadBalancerSizeMedium string = "MEDIUM"
-	LoadBalancerSizeLarge  string = "LARGE"
-	LoadBalancerSizeXlarge string = "XLARGE"
+	LoadBalancerSizeSmall  string = "Small"
+	LoadBalancerSizeMedium string = "Medium"
+	LoadBalancerSizeLarge  string = "Large"
+	LoadBalancerSizeXlarge string = "Xlarge"
 )
 
 // VPCNetworkConfigurationSpec defines the desired state of VPCNetworkConfiguration.
@@ -24,11 +24,11 @@ const (
 // in a Namespace's VPCNetworkConfiguration, the Namespace will use the value
 // in the default VPCNetworkConfiguration.
 type VPCNetworkConfigurationSpec struct {
-	// NSX-T Project the Namespace associated with.
-	NsxProject string `json:"nsxProject,omitempty"`
+	// NSX Project the Namespace associated with.
+	NSXProject string `json:"nsxProject,omitempty"`
 
-	// VpcConnectivityProfile ID. This profile has configuration related to creating VPC transit gateway attachment.
-	VpcConnectivityProfile string `json:"vpcConnectivityProfile,omitempty"`
+	// VPCConnectivityProfile ID. This profile has configuration related to creating VPC transit gateway attachment.
+	VPCConnectivityProfile string `json:"vpcConnectivityProfile,omitempty"`
 
 	// Private IPs.
 	PrivateIPs []string `json:"privateIPs,omitempty"`
@@ -45,15 +45,15 @@ type VPCNetworkConfigurationSpec struct {
 	// +optional
 	VPC string `json:"vpc,omitempty"`
 
-	// +kubebuilder:validation:Enum=SMALL;MEDIUM;LARGE;XLARGE
+	// +kubebuilder:validation:Enum=Small;Medium;Large;Xlarge
 	LoadBalancerSize string `json:"loadBalancerSize,omitempty"`
 
-	// Default size of Subnet based upon estimated workload count.
+	// Default size of Subnet.
 	// Defaults to 26.
 	// +kubebuilder:default=26
 	DefaultSubnetSize int `json:"defaultSubnetSize,omitempty"`
-	// PodSubnetAccessMode defines the access mode of the default SubnetSet for PodVM.
-	// Must be Public or Private.
+	// PodSubnetAccessMode defines the access mode of the default SubnetSet for PodVMs.
+	// Must be Public, Private or PrivateTGW.
 	// +kubebuilder:validation:Enum=Public;Private;PrivateTGW
 	PodSubnetAccessMode string `json:"podSubnetAccessMode,omitempty"`
 }

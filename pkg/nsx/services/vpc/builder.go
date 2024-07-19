@@ -71,7 +71,7 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 		vpc.Tags = util.BuildBasicTags(cluster, obj, nsObj.UID)
 	}
 
-	vpc.VpcConnectivityProfile = &nc.VpcConnectivityProfile
+	vpc.VpcConnectivityProfile = &nc.VPCConnectivityProfile
 
 	// vpc.PrivateIps = nc.PrivateIPs
 	vpc.PrivateIpv4Blocks = util.GetMapValues(pathMap)

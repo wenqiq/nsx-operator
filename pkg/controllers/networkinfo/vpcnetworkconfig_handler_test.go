@@ -64,7 +64,7 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 	emptyCRD := &v1alpha1.VPCNetworkConfiguration{}
 	emptyCRD2 := &v1alpha1.VPCNetworkConfiguration{
 		Spec: v1alpha1.VPCNetworkConfigurationSpec{
-			NsxProject: "/invalid/path",
+			NSXProject: "/invalid/path",
 		},
 	}
 	_, e := buildNetworkConfigInfo(*emptyCRD)
@@ -75,15 +75,15 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 	spec1 := v1alpha1.VPCNetworkConfigurationSpec{
 		PrivateIPs:             []string{"private-ipb-1", "private-ipb-2"},
 		DefaultSubnetSize:      64,
-		VpcConnectivityProfile: "test-VpcConnectivityProfile",
+		VPCConnectivityProfile: "test-VPCConnectivityProfile",
 		PodSubnetAccessMode:    "Public",
-		NsxProject:             "/orgs/default/projects/nsx_operator_e2e_test",
+		NSXProject:             "/orgs/default/projects/nsx_operator_e2e_test",
 	}
 	spec2 := v1alpha1.VPCNetworkConfigurationSpec{
 		PrivateIPs:          []string{"private-ipb-1", "private-ipb-2"},
 		DefaultSubnetSize:   32,
 		PodSubnetAccessMode: "Private",
-		NsxProject:          "/orgs/anotherOrg/projects/anotherProject",
+		NSXProject:          "/orgs/anotherOrg/projects/anotherProject",
 	}
 	testCRD1 := v1alpha1.VPCNetworkConfiguration{
 		Spec: spec1,
@@ -117,7 +117,7 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 		vpcConnectivityProfile string
 	}{
 		{"test-nsxtProjectPathToId", testCRD1, "test-gw-path-1", "test-edge-path-1", "default", "nsx_operator_e2e_test", 64, "Public", false, ""},
-		{"with-VpcConnectivityProfile", testCRD2, "test-gw-path-2", "test-edge-path-2", "anotherOrg", "anotherProject", 32, "Private", false, "test-VpcConnectivityProfile"},
+		{"with-VPCConnectivityProfile", testCRD2, "test-gw-path-2", "test-edge-path-2", "anotherOrg", "anotherProject", 32, "Private", false, "test-VPCConnectivityProfile"},
 		{"with-defaultNetworkConfig", testCRD3, "test-gw-path-2", "test-edge-path-2", "anotherOrg", "anotherProject", 32, "Private", true, ""},
 	}
 	for _, tt := range tests {
@@ -127,7 +127,7 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 			// assert.Equal(t, tt.gw, nc.DefaultGatewayPath)
 			// assert.Equal(t, tt.edge, nc.EdgeClusterPath)
 			assert.Equal(t, tt.org, nc.Org)
-			assert.Equal(t, tt.project, nc.NsxProject)
+			assert.Equal(t, tt.project, nc.NSXProject)
 			assert.Equal(t, tt.subnetSize, nc.DefaultSubnetSize)
 			assert.Equal(t, tt.accessMode, nc.PodSubnetAccessMode)
 			assert.Equal(t, tt.isDefault, nc.IsDefault)

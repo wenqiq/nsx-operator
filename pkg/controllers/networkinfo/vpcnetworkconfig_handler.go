@@ -99,9 +99,9 @@ var VPCNetworkConfigurationPredicate = predicate.Funcs{
 }
 
 func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*commontypes.VPCNetworkConfigInfo, error) {
-	org, project, err := nsxtProjectPathToId(vpcConfigCR.Spec.NsxProject)
+	org, project, err := nsxtProjectPathToId(vpcConfigCR.Spec.NSXProject)
 	if err != nil {
-		log.Error(err, "failed to parse nsx-t project in network config", "Project Path", vpcConfigCR.Spec.NsxProject)
+		log.Error(err, "failed to parse nsx-t project in network config", "Project Path", vpcConfigCR.Spec.NSXProject)
 		return nil, err
 	}
 
@@ -109,9 +109,9 @@ func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*comm
 		IsDefault:              isDefaultNetworkConfigCR(vpcConfigCR),
 		Org:                    org,
 		Name:                   vpcConfigCR.Name,
-		VpcConnectivityProfile: vpcConfigCR.Spec.VpcConnectivityProfile,
+		VPCConnectivityProfile: vpcConfigCR.Spec.VPCConnectivityProfile,
 		LoadBalancerSize:       vpcConfigCR.Spec.LoadBalancerSize,
-		NsxProject:             project,
+		NSXProject:             project,
 		PrivateIPs:             vpcConfigCR.Spec.PrivateIPs,
 		DefaultSubnetSize:      vpcConfigCR.Spec.DefaultSubnetSize,
 		PodSubnetAccessMode:    vpcConfigCR.Spec.PodSubnetAccessMode,

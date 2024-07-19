@@ -198,9 +198,9 @@ type VPCNetworkConfigInfo struct {
 	IsDefault              bool
 	Org                    string
 	Name                   string
-	VpcConnectivityProfile string
+	VPCConnectivityProfile string
 	LoadBalancerSize       string
-	NsxProject             string
+	NSXProject             string
 	ExternalIPv4Blocks     []string
 	PrivateIPs             []string
 	DefaultSubnetSize      int

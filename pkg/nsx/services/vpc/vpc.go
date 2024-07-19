@@ -324,10 +324,10 @@ func (s *VPCService) CreateOrUpdatePrivateIPBlock(obj *v1alpha1.NetworkInfo, nsO
 			block := s.IpblockStore.GetByKey(key)
 			if block == nil {
 				log.Info("no ip block found in store for cidr", "CIDR", pCidr)
-				block := buildPrivateIpBlock(obj, nsObj, pCidr, ip.String(), nc.NsxProject, s.NSXConfig.Cluster)
+				block := buildPrivateIpBlock(obj, nsObj, pCidr, ip.String(), nc.NSXProject, s.NSXConfig.Cluster)
 				log.Info("creating ip block", "IPBlock", block.Id, "VPC", obj.Name)
 				// can not find private ip block from store, create one
-				_err := s.NSXClient.IPBlockClient.Patch(nc.Org, nc.NsxProject, *block.Id, block)
+				_err := s.NSXClient.IPBlockClient.Patch(nc.Org, nc.NSXProject, *block.Id, block)
 				_err = nsxutil.NSXApiError(_err)
 				if _err != nil {
 					message := fmt.Sprintf("failed to create private ip block for cidr %s for VPC %s", pCidr, obj.Name)
@@ -336,11 +336,11 @@ func (s *VPCService) CreateOrUpdatePrivateIPBlock(obj *v1alpha1.NetworkInfo, nsO
 					return nil, ipblockError
 				}
 				ignoreIpblockUsage := true
-				createdBlock, err := s.NSXClient.IPBlockClient.Get(nc.Org, nc.NsxProject, *block.Id, &ignoreIpblockUsage)
+				createdBlock, err := s.NSXClient.IPBlockClient.Get(nc.Org, nc.NSXProject, *block.Id, &ignoreIpblockUsage)
 				err = nsxutil.NSXApiError(err)
 				if err != nil {
 					// created by can not get, ignore this error
-					log.Info("failed to read ip blocks from NSX", "Project", nc.NsxProject, "IPBlock", block.Id)
+					log.Info("failed to read ip blocks from NSX", "Project", nc.NSXProject, "IPBlock", block.Id)
 					continue
 				}
 				// update ip block store
@@ -569,13 +569,13 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 	}
 
 	log.Info("creating NSX VPC", "VPC", *createdVpc.Id)
-	err = s.NSXClient.VPCClient.Patch(nc.Org, nc.NsxProject, *createdVpc.Id, *createdVpc)
+	err = s.NSXClient.VPCClient.Patch(nc.Org, nc.NSXProject, *createdVpc.Id, *createdVpc)
 	err = nsxutil.NSXApiError(err)
 	if err != nil {
-		log.Error(err, "failed to create VPC", "Project", nc.NsxProject, "Namespace", obj.Namespace)
+		log.Error(err, "failed to create VPC", "Project", nc.NSXProject, "Namespace", obj.Namespace)
 		// TODO: this seems to be a nsx bug, in some case, even if nsx returns failed but the object is still created.
 		log.Info("try to read VPC although VPC creation failed", "VPC", *createdVpc.Id)
-		failedVpc, rErr := s.NSXClient.VPCClient.Get(nc.Org, nc.NsxProject, *createdVpc.Id)
+		failedVpc, rErr := s.NSXClient.VPCClient.Get(nc.Org, nc.NSXProject, *createdVpc.Id)
 		rErr = nsxutil.NSXApiError(rErr)
 		if rErr != nil {
 			// failed to read, but already created, we consider this scenario as success, but store may not sync with nsx
@@ -588,7 +588,7 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 	}
 
 	// get the created vpc from nsx, it contains the path of the resources
-	newVpc, err := s.NSXClient.VPCClient.Get(nc.Org, nc.NsxProject, *createdVpc.Id)
+	newVpc, err := s.NSXClient.VPCClient.Get(nc.Org, nc.NSXProject, *createdVpc.Id)
 	err = nsxutil.NSXApiError(err)
 	if err != nil {
 		// failed to read, but already created, we consider this scenario as success, but store may not sync with nsx
