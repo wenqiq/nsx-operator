@@ -60,7 +60,7 @@ spec:
                   Default size of Subnet based upon estimated workload count.
                   Defaults to 26.
                 type: integer
-              lbServiceSize:
+              loadBalancerSize:
                 enum:
                 - SMALL
                 - MEDIUM

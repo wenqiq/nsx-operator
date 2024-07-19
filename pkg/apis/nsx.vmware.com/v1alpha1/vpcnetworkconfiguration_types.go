@@ -46,7 +46,7 @@ type VPCNetworkConfigurationSpec struct {
 	VPC string `json:"vpc,omitempty"`
 
 	// +kubebuilder:validation:Enum=SMALL;MEDIUM;LARGE;XLARGE
-	LoadBalancerSize string `json:"lbServiceSize,omitempty"`
+	LoadBalancerSize string `json:"loadBalancerSize,omitempty"`
 
 	// Default size of Subnet based upon estimated workload count.
 	// Defaults to 26.
