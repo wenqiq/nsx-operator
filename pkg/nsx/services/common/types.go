@@ -199,7 +199,6 @@ type VPCNetworkConfigInfo struct {
 	Org                    string
 	Name                   string
 	VpcConnectivityProfile string
-	VpcServiceProfile      string
 	LoadBalancerSize       string
 	NsxProject             string
 	ExternalIPv4Blocks     []string

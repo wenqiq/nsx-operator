@@ -30,9 +30,6 @@ type VPCNetworkConfigurationSpec struct {
 	// VpcConnectivityProfile ID. This profile has configuration related to create VPC transit gateway attachment.
 	VpcConnectivityProfile string `json:"vpcConnectivityProfile,omitempty"`
 
-	// The path of the configuration profile of the VPC services. This will be an collection of default dhcp and subnet profiles. The default vpc service profile will be created as part of new project create workflow. That will be used as the default for all VPC created under that project. The default value will be project specific default VPC profile.
-	VpcServiceProfile string `json:"vpcServiceProfile,omitempty"`
-
 	// Private IPs.
 	PrivateIPs []string `json:"privateIPs,omitempty"`
 

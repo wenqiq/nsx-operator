@@ -72,7 +72,6 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 	}
 
 	vpc.VpcConnectivityProfile = &nc.VpcConnectivityProfile
-	vpc.VpcServiceProfile = &nc.VpcServiceProfile
 
 	// vpc.PrivateIps = nc.PrivateIPs
 	vpc.PrivateIpv4Blocks = util.GetMapValues(pathMap)

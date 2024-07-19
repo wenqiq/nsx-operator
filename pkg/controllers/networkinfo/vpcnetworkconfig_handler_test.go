@@ -73,20 +73,13 @@ func TestBuildNetworkConfigInfo(t *testing.T) {
 	assert.NotNil(t, e)
 
 	spec1 := v1alpha1.VPCNetworkConfigurationSpec{
-		// DefaultGatewayPath:      "test-gw-path-1",
-		// EdgeClusterPath: "test-edge-path-1",
-		// ExternalIPv4Blocks:      []string{"external-ipb-1", "external-ipb-2"},
-		PrivateIPs:        []string{"private-ipb-1", "private-ipb-2"},
-		DefaultSubnetSize: 64,
-		// VPCServiceProfile:       "test-VpcServiceProfile",
+		PrivateIPs:             []string{"private-ipb-1", "private-ipb-2"},
+		DefaultSubnetSize:      64,
 		VpcConnectivityProfile: "test-VpcConnectivityProfile",
 		PodSubnetAccessMode:    "Public",
 		NsxProject:             "/orgs/default/projects/nsx_operator_e2e_test",
 	}
 	spec2 := v1alpha1.VPCNetworkConfigurationSpec{
-		// DefaultGatewayPath:      "test-gw-path-2",
-		// EdgeClusterPath: "test-edge-path-2",
-		// ExternalIPv4Blocks:      []string{"external-ipb-1", "external-ipb-2"},
 		PrivateIPs:          []string{"private-ipb-1", "private-ipb-2"},
 		DefaultSubnetSize:   32,
 		PodSubnetAccessMode: "Private",
