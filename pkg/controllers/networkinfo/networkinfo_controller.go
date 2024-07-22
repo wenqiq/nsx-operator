@@ -69,29 +69,40 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return common.ResultRequeueAfter10sec, err
 		}
 
-		isShared, err := r.Service.IsSharedVPCNamespaceByNS(obj.GetNamespace())
-		if err != nil {
-			log.Error(err, "failed to check if namespace is shared", "Namespace", obj.GetNamespace())
-			return common.ResultRequeue, err
-		}
-		if r.Service.NSXConfig.NsxConfig.UseAVILoadBalancer && !isShared {
-			err = r.Service.CreateOrUpdateAVIRule(createdVpc, obj.Namespace)
+		var privateIPs []string
+		var vpcConnectivityProfilePath string
+		if vpc.IsPreCreatedVPC(*nc) {
+			privateIPs = createdVpc.PrivateIps
+			vpcConnectivityProfilePath = *createdVpc.VpcConnectivityProfile
+		} else {
+			privateIPs = nc.PrivateIPs
+			// We don't support the case a Namespace is configured with a pre-created VPC and
+			// is sharing the VPC to other Namespaces by now.
+			isShared, err := r.Service.IsSharedVPCNamespaceByNS(obj.GetNamespace())
 			if err != nil {
-				state := &v1alpha1.VPCState{
-					Name:                    *createdVpc.DisplayName,
-					VPCPath:                 *createdVpc.Path,
-					DefaultSNATIP:           "",
-					LoadBalancerIPAddresses: "",
-					PrivateIPs:              nc.PrivateIPs,
-				}
-				log.Error(err, "update avi rule failed, would retry exponentially", "NetworkInfo", req.NamespacedName, "state", state)
-				// updateFail(r, &ctx, obj, &err, r.Client, state)
-				// return common.ResultRequeueAfter10sec, err
+				log.Error(err, "failed to check if namespace is shared", "Namespace", obj.GetNamespace())
+				return common.ResultRequeue, err
 			}
+			if r.Service.NSXConfig.NsxConfig.UseAVILoadBalancer && !isShared {
+				err = r.Service.CreateOrUpdateAVIRule(createdVpc, obj.Namespace)
+				if err != nil {
+					state := &v1alpha1.VPCState{
+						Name:                    *createdVpc.DisplayName,
+						VPCPath:                 *createdVpc.Path,
+						DefaultSNATIP:           "",
+						LoadBalancerIPAddresses: "",
+						PrivateIPs:              privateIPs,
+					}
+					log.Error(err, "update avi rule failed, would retry exponentially", "NetworkInfo", req.NamespacedName, "state", state)
+					// updateFail(r, &ctx, obj, &err, r.Client, state)
+					// return common.ResultRequeueAfter10sec, err
+				}
+			}
+			vpcConnectivityProfilePath = nc.VPCConnectivityProfile
 		}
 
 		snatIP, path, cidr := "", "", ""
-		parts := strings.Split(nc.VPCConnectivityProfile, "/")
+		parts := strings.Split(vpcConnectivityProfilePath, "/")
 		if len(parts) < 1 {
 			log.Error(err, "failed to check VPCConnectivityProfile length", "VPCConnectivityProfile", nc.VPCConnectivityProfile)
 			return common.ResultRequeue, err
@@ -125,7 +136,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					VPCPath:                 *createdVpc.Path,
 					DefaultSNATIP:           "",
 					LoadBalancerIPAddresses: "",
-					PrivateIPs:              nc.PrivateIPs,
+					PrivateIPs:              privateIPs,
 				}
 				updateFail(r, &ctx, obj, &err, r.Client, state)
 				return common.ResultRequeueAfter10sec, err
@@ -144,7 +155,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					VPCPath:                 *createdVpc.Path,
 					DefaultSNATIP:           snatIP,
 					LoadBalancerIPAddresses: "",
-					PrivateIPs:              nc.PrivateIPs,
+					PrivateIPs:              privateIPs,
 				}
 				updateFail(r, &ctx, obj, &err, r.Client, state)
 				return common.ResultRequeueAfter10sec, err
@@ -156,7 +167,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			VPCPath:                 *createdVpc.Path,
 			DefaultSNATIP:           snatIP,
 			LoadBalancerIPAddresses: cidr,
-			PrivateIPs:              nc.PrivateIPs,
+			PrivateIPs:              privateIPs,
 		}
 		updateSuccess(r, &ctx, obj, r.Client, state, nc.Name, path, r.Service.GetNSXLBSPath(*createdVpc.Id))
 	} else {

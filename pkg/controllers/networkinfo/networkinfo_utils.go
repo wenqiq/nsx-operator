@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
@@ -42,21 +43,31 @@ func deleteSuccess(r *NetworkInfoReconciler, _ *context.Context, o *v1alpha1.Net
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerDeleteSuccessTotal, common.MetricResTypeNetworkInfo)
 }
 
-func setNetworkInfoVPCStatus(ctx *context.Context, networkInfo *v1alpha1.NetworkInfo, client client.Client, createdVPC *v1alpha1.VPCState) {
+func setNetworkInfoVPCStatus(ctx *context.Context, networkInfo *v1alpha1.NetworkInfo, client client.Client, createdVPC *v1alpha1.VPCState) bool {
+	updateNetworkInfo := func(ctx context.Context, networkInfo *v1alpha1.NetworkInfo) bool {
+		if err := client.Update(ctx, networkInfo); err != nil {
+			log.Error(err, "Failed to update NetworkInfo's VPC state")
+			return false
+		}
+		return true
+	}
+
 	// if createdVPC is empty, remove the VPC from networkInfo
 	if createdVPC == nil {
 		networkInfo.VPCs = []v1alpha1.VPCState{}
-		client.Update(*ctx, networkInfo)
-		return
+		return updateNetworkInfo(*ctx, networkInfo)
 	}
 	existingVPC := &v1alpha1.VPCState{}
 	if len(networkInfo.VPCs) > 0 {
 		existingVPC = &networkInfo.VPCs[0]
 	}
-	if !reflect.DeepEqual(*existingVPC, *createdVPC) {
-		networkInfo.VPCs = []v1alpha1.VPCState{*createdVPC}
-		client.Update(*ctx, networkInfo)
+	slices.Sort(existingVPC.PrivateIPs)
+	slices.Sort(createdVPC.PrivateIPs)
+	if reflect.DeepEqual(*existingVPC, *createdVPC) {
+		return false
 	}
+	networkInfo.VPCs = []v1alpha1.VPCState{*createdVPC}
+	return updateNetworkInfo(*ctx, networkInfo)
 }
 
 func setVPCNetworkConfigurationStatus(ctx *context.Context, client client.Client, ncName string, vpcName string, aviSubnetPath string, nsxLBSPath string) {
@@ -95,4 +106,23 @@ func getNamespaceFromNSXVPC(nsxVPC *model.Vpc) string {
 		}
 	}
 	return ""
+}
+
+func updateNetworkInfoVPCStates(r *NetworkInfoReconciler, ctx context.Context, ns string, vpcState *v1alpha1.VPCState) {
+	networkInfos := &v1alpha1.NetworkInfoList{}
+	err := r.Client.List(ctx, networkInfos, client.InNamespace(ns))
+	if err != nil {
+		log.Error(err, "Failed to list NetworkInfos in Namespace", "Namespace", ns)
+		return
+	}
+	if len(networkInfos.Items) == 0 {
+		log.Info("No NetworkInfo exist in Namespace", "Namespace", ns)
+		return
+	}
+	netInfo := networkInfos.Items[0]
+	updated := setNetworkInfoVPCStatus(&ctx, &netInfo, r.Client, vpcState)
+	if updated {
+		r.Recorder.Event(networkInfos, v1.EventTypeNormal, common.ReasonSuccessfulUpdate, "NetworkInfo CR has been updated with VPC state")
+		metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateSuccessTotal, common.MetricResTypeNetworkInfo)
+	}
 }

@@ -47,7 +47,7 @@ var (
 )
 
 type VPCNetworkInfoStore struct {
-	sync.Mutex
+	sync.RWMutex
 	VPCNetworkConfigMap map[string]common.VPCNetworkConfigInfo
 }
 
@@ -141,6 +141,10 @@ func (s *VPCService) GetVPCNetworkConfigByNamespace(ns string) *common.VPCNetwor
 // TBD: for now, if network config info do not contains private cidr, we consider this is
 // incorrect configuration, and skip creating this VPC CR
 func (s *VPCService) ValidateNetworkConfig(nc common.VPCNetworkConfigInfo) bool {
+	if nc.VPCPath != "" {
+		// if network config is using a pre-created VPC, skip the check on PrivateIPs.
+		return true
+	}
 	return nc.PrivateIPs != nil && len(nc.PrivateIPs) != 0
 }
 
@@ -530,6 +534,16 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo) (*model.Vpc, *
 		message := fmt.Sprintf("failed to read network config %s when creating NSX VPC", ncName)
 		log.Info(message)
 		return nil, nil, errors.New(message)
+	}
+
+	// Return pre-created VPC resource if it is used in the VPCNetworkConfiguration
+	if IsPreCreatedVPC(nc) {
+		preVPC, err := s.GetVPCFromNSXByPath(nc.VPCPath)
+		if err != nil {
+			log.Error(err, "Failed to get existing VPC from NSX", "vpcPath", nc.VPCPath)
+			return nil, nil, err
+		}
+		return preVPC, &nc, nil
 	}
 
 	// check if this namespace vpc share from others, if yes
@@ -951,6 +965,19 @@ func (service *VPCService) checkAVISecurityPolicyExist(orgId string, projectId s
 
 func (service *VPCService) ListVPCInfo(ns string) []common.VPCResourceInfo {
 	var VPCInfoList []common.VPCResourceInfo
+	nc := service.GetVPCNetworkConfigByNamespace(ns)
+	// Return the pre-created VPC resource info if it is set in VPCNetworkConfiguration.
+	if nc != nil && IsPreCreatedVPC(*nc) {
+		vpcResourceInfo, err := common.ParseVPCResourcePath(nc.VPCPath)
+		if err != nil {
+			log.Error(err, "Failed to get vpc info from vpc path", "vpc path", nc.VPCPath)
+		} else {
+			VPCInfoList = append(VPCInfoList, vpcResourceInfo)
+		}
+		return VPCInfoList
+	}
+
+	// List VPCs from local store.
 	vpcs := service.GetVPCsByNamespace(ns) // Transparently call the VPCService.GetVPCsByNamespace method
 	for _, v := range vpcs {
 		vpcResourceInfo, err := common.ParseVPCResourcePath(*v.Path)
@@ -969,4 +996,45 @@ func (s *VPCService) GetNSXLBSPath(lbsId string) string {
 		return ""
 	}
 	return *vpcLBS.Path
+}
+
+// ListNamespacesWithPreCreatedVPC returns a mapping of the pre-created VPC path and the Namespaces
+// which use the VPC. The key is the pre-created VPC path, the value is a slice of Namespaces that
+// use the VPC.
+func (service *VPCService) ListNamespacesWithPreCreatedVPC() map[string][]string {
+	vpcNSMappings := make(map[string][]string)
+	service.VPCNetworkConfigStore.RLock()
+	defer service.VPCNetworkConfigStore.RUnlock()
+	for name, config := range service.VPCNetworkConfigStore.VPCNetworkConfigMap {
+		if IsPreCreatedVPC(config) {
+			vpcPath := config.VPCPath
+			namespaces := service.GetNamespacesByNetworkconfigName(name)
+			existingNamespaces, found := vpcNSMappings[vpcPath]
+			if !found {
+				existingNamespaces = make([]string, 0)
+			}
+			existingNamespaces = append(existingNamespaces, namespaces...)
+			vpcNSMappings[vpcPath] = existingNamespaces
+		}
+	}
+	return vpcNSMappings
+}
+
+func (service *VPCService) GetVPCFromNSXByPath(vpcPath string) (*model.Vpc, error) {
+	vpcResInfo, err := common.ParseVPCResourcePath(vpcPath)
+	if err != nil {
+		return nil, err
+	}
+	vpc, err := service.NSXClient.VPCClient.Get(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID)
+	err = nsxutil.NSXApiError(err)
+	if err != nil {
+		log.Error(err, "failed to read VPC object from NSX", "VPC", vpcPath)
+		return nil, err
+	}
+
+	return &vpc, nil
+}
+
+func IsPreCreatedVPC(nc common.VPCNetworkConfigInfo) bool {
+	return nc.VPCPath != ""
 }

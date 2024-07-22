@@ -517,3 +517,44 @@ func TestCreateOrUpdateAVIRule(t *testing.T) {
 	err = service.CreateOrUpdateAVIRule(&vpc1, ns1)
 	assert.Equal(t, err, nil)
 }
+
+func TestListNamespacesWithPreCreatedVPC(t *testing.T) {
+	service := &VPCService{
+		VPCNetworkConfigStore: VPCNetworkInfoStore{
+			VPCNetworkConfigMap: make(map[string]common.VPCNetworkConfigInfo),
+		},
+		VPCNSNetworkConfigStore: VPCNsNetworkConfigStore{
+			VPCNSNetworkConfigMap: make(map[string]string),
+		},
+	}
+	vpcPath1 := "vpc-path1"
+	vpcPath2 := "vpc-path2"
+	vpcCR1 := "vpc-cr1"
+	vpcCR2 := "vpc-cr2"
+	vpcCR3 := "vpc-cr3"
+	service.RegisterNamespaceNetworkconfigBinding("ns1", vpcCR1)
+	service.RegisterNamespaceNetworkconfigBinding("ns2", vpcCR2)
+	service.RegisterNamespaceNetworkconfigBinding("ns3", vpcCR3)
+	service.RegisterNamespaceNetworkconfigBinding("ns4", vpcCR2)
+	service.RegisterVPCNetworkConfig(vpcCR1, common.VPCNetworkConfigInfo{
+		Name:    "vpc1",
+		VPCPath: vpcPath1,
+	})
+	service.RegisterVPCNetworkConfig(vpcCR2, common.VPCNetworkConfigInfo{
+		Name:    "vpc2",
+		VPCPath: vpcPath2,
+	})
+	// Auto-created VPC.
+	service.RegisterVPCNetworkConfig(vpcCR3, common.VPCNetworkConfigInfo{
+		Name: "vpc-3",
+	})
+
+	vpcNSMappings := service.ListNamespacesWithPreCreatedVPC()
+	assert.Equal(t, 2, len(vpcNSMappings))
+	nss1, found := vpcNSMappings[vpcPath1]
+	assert.True(t, found)
+	assert.ElementsMatch(t, []string{"ns1"}, nss1)
+	nss2, found := vpcNSMappings[vpcPath2]
+	assert.True(t, found)
+	assert.ElementsMatch(t, []string{"ns2", "ns4"}, nss2)
+}
