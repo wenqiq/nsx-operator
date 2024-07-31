@@ -66,7 +66,8 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 		// for creating vpc case, fill in vpc properties based on networkconfig
 		vpcName := util.GenerateDisplayName("", "vpc", obj.GetNamespace(), "", cluster)
 		vpc.DisplayName = &vpcName
-		vpc.Id = common.String(string(nsObj.GetUID()))
+		namespaceName := nsObj.GetUID()
+		vpc.Id = common.String(string(namespaceName[:len(namespaceName)-2]))
 		vpc.IpAddressType = &DefaultVPCIPAddressType
 
 		vpc.LoadBalancerVpcEndpoint = &model.LoadBalancerVPCEndpoint{Enabled: &DefaultLoadBalancerVPCEndpointEnabled}
