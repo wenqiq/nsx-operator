@@ -236,7 +236,7 @@ func (service *SubnetService) GetSubnetStatus(subnet *model.VpcSubnet) ([]model.
 	if statusList.Results[0].NetworkAddress == nil || statusList.Results[0].GatewayAddress == nil {
 		err := fmt.Errorf("invalid status result: %+v", statusList.Results[0])
 		log.Error(err, "subnet status does not have network address or gateway address", "subnet.Id", subnet.Id)
-		return nil, err
+		// return nil, err
 	}
 	return statusList.Results, nil
 }
@@ -276,8 +276,12 @@ func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) err
 			NSXResourcePath: *subnet.Path,
 		}
 		for _, status := range statusList {
-			subnetInfo.NetworkAddresses = append(subnetInfo.NetworkAddresses, *status.NetworkAddress)
-			subnetInfo.GatewayAddresses = append(subnetInfo.GatewayAddresses, *status.GatewayAddress)
+			if status.NetworkAddress != nil {
+				subnetInfo.NetworkAddresses = append(subnetInfo.NetworkAddresses, *status.NetworkAddress)
+			}
+			if status.GatewayAddress != nil {
+				subnetInfo.GatewayAddresses = append(subnetInfo.GatewayAddresses, *status.GatewayAddress)
+			}
 			// DHCPServerAddress is only for the subnet with DHCP enabled
 			if status.DhcpServerAddress != nil {
 				subnetInfo.DHCPServerAddresses = append(subnetInfo.DHCPServerAddresses, *status.DhcpServerAddress)

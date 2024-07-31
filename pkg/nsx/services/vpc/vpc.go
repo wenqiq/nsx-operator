@@ -502,7 +502,7 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	if statusList.Results[0].NetworkAddress == nil {
 		err := fmt.Errorf("invalid status result: %+v", statusList.Results[0])
 		log.Error(err, "subnet status does not have network address", "Subnet", common.AVISubnetLBID)
-		return "", "", err
+		return "", "", nil
 	}
 
 	cidr := *statusList.Results[0].NetworkAddress

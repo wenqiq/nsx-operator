@@ -169,8 +169,12 @@ func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {
 		return err
 	}
 	for _, status := range statusList {
-		obj.Status.NetworkAddresses = append(obj.Status.NetworkAddresses, *status.NetworkAddress)
-		obj.Status.GatewayAddresses = append(obj.Status.GatewayAddresses, *status.GatewayAddress)
+		if status.NetworkAddress == nil {
+			obj.Status.NetworkAddresses = append(obj.Status.NetworkAddresses, *status.NetworkAddress)
+		}
+		if status.GatewayAddress != nil {
+			obj.Status.GatewayAddresses = append(obj.Status.GatewayAddresses, *status.GatewayAddress)
+		}
 		// DHCPServerAddress is only for the subnet with DHCP enabled
 		if status.DhcpServerAddress != nil {
 			obj.Status.DHCPServerAddresses = append(obj.Status.DHCPServerAddresses, *status.DhcpServerAddress)
