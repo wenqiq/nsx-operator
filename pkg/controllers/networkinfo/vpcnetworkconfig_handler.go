@@ -101,7 +101,7 @@ var VPCNetworkConfigurationPredicate = predicate.Funcs{
 func buildNetworkConfigInfo(vpcConfigCR v1alpha1.VPCNetworkConfiguration) (*commontypes.VPCNetworkConfigInfo, error) {
 	org, project, err := nsxtProjectPathToId(vpcConfigCR.Spec.NSXProject)
 	if err != nil {
-		log.Error(err, "failed to parse nsx-t project in network config", "Project Path", vpcConfigCR.Spec.NSXProject)
+		log.Error(err, "failed to parse NSX project in network config", "Project Path", vpcConfigCR.Spec.NSXProject)
 		return nil, err
 	}
 

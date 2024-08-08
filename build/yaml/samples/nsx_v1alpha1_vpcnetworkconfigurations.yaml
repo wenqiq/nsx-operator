@@ -3,12 +3,8 @@ kind: VPCNetworkConfiguration
 metadata:
   name: vpc-network-config1
 spec:
-  defaultGatewayPath: /infra/tier-0s/t0
-  edgeClusterPath: /infra/sites/default/enforcement-points/default/edge-clusters/2d9df59f-6dc6-4911-8865-21fadc23d4da
   defaultSubnetSize: 32
   nsxProject: proj-1
-  externalIPv4Blocks:
-    - block1
   privateIPs:
     - 172.26.0.0/16
     - 172.36.0.0/16
