@@ -48,6 +48,15 @@ func subnetSetIndexFunc(obj interface{}) ([]string, error) {
 	}
 }
 
+func subnetNamespacedNameIndexFunc(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case *model.VpcSubnet:
+		return filterTag(o.Tags, common.TagScopeSubnetCRNamespacedName), nil
+	default:
+		return nil, errors.New("subnetSetIndexFunc doesn't support unknown type")
+	}
+}
+
 // SubnetStore is a store for subnet.
 type SubnetStore struct {
 	common.ResourceStore

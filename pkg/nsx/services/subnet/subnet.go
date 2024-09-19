@@ -56,8 +56,9 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 		SubnetStore: &SubnetStore{
 			ResourceStore: common.ResourceStore{
 				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
-					common.TagScopeSubnetCRUID:    subnetIndexFunc,
-					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeSubnetCRUID:            subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID:         subnetSetIndexFunc,
+					common.TagScopeSubnetCRNamespacedName: subnetNamespacedNameIndexFunc,
 				}),
 				BindingType: model.VpcSubnetBindingType(),
 			},
@@ -339,7 +340,11 @@ func (service *SubnetService) GetSubnetsByIndex(key, value string) []*model.VpcS
 	return service.SubnetStore.GetByIndex(key, value)
 }
 
-func (service *SubnetService) GenerateSubnetNSTags(obj client.Object, ns string) []model.Tag {
+func SubnetNamespacedName(name, namespace string) string {
+	return fmt.Sprintf("%s/%s", namespace, name)
+}
+
+func (service *SubnetService) GenerateSubnetNSTags(obj client.Object, name, ns string) []model.Tag {
 	namespace := &v1.Namespace{}
 	namespacedName := types.NamespacedName{
 		Name: ns,
@@ -353,6 +358,7 @@ func (service *SubnetService) GenerateSubnetNSTags(obj client.Object, ns string)
 	case *v1alpha1.Subnet:
 		tags = append(tags,
 			model.Tag{Scope: String(common.TagScopeVMNamespaceUID), Tag: String(nsUID)},
+			model.Tag{Scope: String(common.TagScopeSubnetCRNamespacedName), Tag: String(SubnetNamespacedName(name, ns))},
 			model.Tag{Scope: String(common.TagScopeVMNamespace), Tag: String(obj.GetNamespace())})
 	case *v1alpha1.SubnetSet:
 		findLabelDefaultPodSubnetSet := false

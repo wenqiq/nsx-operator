@@ -72,6 +72,7 @@ const (
 	SystemVPCNetworkConfigurationName  string = "system"
 	TagScopeSubnetCRUID                string = "nsx-op/subnet_uid"
 	TagScopeSubnetCRName               string = "nsx-op/subnet_name"
+	TagScopeSubnetCRNamespacedName     string = "nsx-op/subnet_namespaced_name"
 	TagScopeSubnetSetCRName            string = "nsx-op/subnetset_name"
 	TagScopeSubnetSetCRUID             string = "nsx-op/subnetset_uid"
 	TagValueGroupScope                 string = "scope"
