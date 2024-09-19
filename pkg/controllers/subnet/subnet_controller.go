@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
@@ -16,12 +17,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
@@ -50,102 +47,130 @@ type SubnetReconciler struct {
 }
 
 func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	obj := &v1alpha1.Subnet{}
-	log.Info("reconciling subnet CR", "subnet", req.NamespacedName)
+	startTime := time.Now()
+	defer func() {
+		log.Info("Finished reconciling Subnet", "Subnet", req.NamespacedName, "time", time.Since(startTime))
+	}()
 	metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerSyncTotal, MetricResTypeSubnet)
 
-	if err := r.Client.Get(ctx, req.NamespacedName, obj); err != nil {
+	subnetCR := &v1alpha1.Subnet{}
+	if err := r.Client.Get(ctx, req.NamespacedName, subnetCR); err != nil {
+		if err := r.DeleteSubnetByName(req.Name, req.Namespace); err != nil {
+			return ResultRequeue, err
+		}
 		log.Error(err, "unable to fetch Subnet CR", "req", req.NamespacedName)
 		return ResultNormal, client.IgnoreNotFound(err)
 	}
-
-	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
-		metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerUpdateTotal, MetricResTypeSubnet)
-		if !controllerutil.ContainsFinalizer(obj, servicecommon.SubnetFinalizerName) {
-			controllerutil.AddFinalizer(obj, servicecommon.SubnetFinalizerName)
-
-			if obj.Spec.AccessMode == "" {
-				log.Info("obj.Spec.AccessMode set", "subnet", req.NamespacedName)
-				obj.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
-			}
-
-			if obj.Spec.IPv4SubnetSize == 0 {
-				vpcNetworkConfig := r.VPCService.GetVPCNetworkConfigByNamespace(obj.Namespace)
-				if vpcNetworkConfig == nil {
-					err := fmt.Errorf("operate failed: cannot get configuration for Subnet CR")
-					log.Error(nil, "failed to find VPCNetworkConfig for Subnet CR", "subnet", req.NamespacedName, "namespace %s", obj.Namespace)
-					updateFail(r, ctx, obj, err.Error())
-					return ResultRequeue, err
-				}
-				obj.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
-			}
-			if err := r.Client.Update(ctx, obj); err != nil {
-				log.Error(err, "add finalizer", "subnet", req.NamespacedName)
-				updateFail(r, ctx, obj, err.Error())
-				return ResultRequeue, err
-			}
-			log.V(1).Info("added finalizer on subnet CR", "subnet", req.NamespacedName)
-		}
-		tags := r.SubnetService.GenerateSubnetNSTags(obj, obj.Namespace)
-		if tags == nil {
-			return ResultRequeue, errors.New("failed to generate subnet tags")
-		}
-		vpcInfoList := r.VPCService.ListVPCInfo(req.Namespace)
-		if len(vpcInfoList) == 0 {
-			return ResultRequeueAfter10sec, nil
-		}
-		if _, err := r.SubnetService.CreateOrUpdateSubnet(obj, vpcInfoList[0], tags); err != nil {
-			if errors.As(err, &util.ExceedTagsError{}) {
-				log.Error(err, "exceed tags limit, would not retry", "subnet", req.NamespacedName)
-				updateFail(r, ctx, obj, err.Error())
-				return ResultNormal, nil
-			}
-			log.Error(err, "operate failed, would retry exponentially", "subnet", req.NamespacedName)
-			updateFail(r, ctx, obj, err.Error())
+	if err := r.cleanStaleSubnets(subnetCR.Name, subnetCR.Namespace, string(subnetCR.UID)); err != nil {
+		return ResultRequeue, err
+	}
+	if !subnetCR.DeletionTimestamp.IsZero() {
+		metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnet)
+		if err := r.DeleteSubnetByID(*subnetCR); err != nil {
+			log.Error(err, "deletion NSX Subnet failed, would retry exponentially", "Subnet", req.NamespacedName)
+			deleteFail(r, ctx, subnetCR, err.Error())
 			return ResultRequeue, err
 		}
-		if err := r.updateSubnetStatus(obj); err != nil {
-			log.Error(err, "update subnet status failed, would retry exponentially", "subnet", req.NamespacedName)
-			updateFail(r, ctx, obj, err.Error())
+		if err := r.Client.Delete(ctx, subnetCR); err != nil {
+			log.Error(err, "deletion Subnet CR failed, would retry exponentially", "Subnet", req.NamespacedName)
+			deleteFail(r, ctx, subnetCR, err.Error())
 			return ResultRequeue, err
 		}
-		updateSuccess(r, ctx, obj)
-	} else {
-		if controllerutil.ContainsFinalizer(obj, servicecommon.SubnetFinalizerName) {
-			metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerDeleteTotal, MetricResTypeSubnet)
-			if err := r.DeleteSubnet(*obj); err != nil {
-				log.Error(err, "deletion failed, would retry exponentially", "subnet", req.NamespacedName)
-				deleteFail(r, ctx, obj, err.Error())
-				return ResultRequeue, err
-			}
-			controllerutil.RemoveFinalizer(obj, servicecommon.SubnetFinalizerName)
-			if err := r.Client.Update(ctx, obj); err != nil {
-				log.Error(err, "deletion failed, would retry exponentially", "subnet", req.NamespacedName)
-				deleteFail(r, ctx, obj, err.Error())
-				return ResultRequeue, err
-			}
-			log.V(1).Info("removed finalizer", "subnet", req.NamespacedName)
-			deleteSuccess(r, ctx, obj)
-		} else {
-			log.Info("finalizers cannot be recognized", "subnet", req.NamespacedName)
+		log.V(1).Info("Deleted Subnet", "Subnet", req.NamespacedName)
+		deleteSuccess(r, ctx, subnetCR)
+		return ResultNormal, nil
+	}
+
+	metrics.CounterInc(r.SubnetService.NSXConfig, metrics.ControllerUpdateTotal, MetricResTypeSubnet)
+
+	specChanged := false
+	if subnetCR.Spec.AccessMode == "" {
+		subnetCR.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
+		specChanged = true
+	}
+
+	if subnetCR.Spec.IPv4SubnetSize == 0 {
+		vpcNetworkConfig := r.VPCService.GetVPCNetworkConfigByNamespace(subnetCR.Namespace)
+		if vpcNetworkConfig == nil {
+			err := fmt.Errorf("operate failed: cannot get configuration for Subnet CR")
+			log.Error(nil, "failed to find VPCNetworkConfig for Subnet CR", "Subnet", req.NamespacedName, "Namespace", subnetCR.Namespace)
+			updateFail(r, ctx, subnetCR, err.Error())
+			return ResultRequeue, err
+		}
+		subnetCR.Spec.IPv4SubnetSize = vpcNetworkConfig.DefaultSubnetSize
+		specChanged = true
+	}
+	if specChanged {
+		err := r.Client.Update(ctx, subnetCR)
+		if err != nil {
+			log.Error(err, "update Subnet failed", "Subnet", req.NamespacedName)
+			updateFail(r, ctx, subnetCR, err.Error())
+			return ResultRequeue, err
 		}
 	}
+
+	tags := r.SubnetService.GenerateSubnetNSTags(subnetCR, subnetCR.Name, subnetCR.Namespace)
+	if tags == nil {
+		return ResultRequeue, errors.New("failed to generate Subnet tags")
+	}
+	vpcInfoList := r.VPCService.ListVPCInfo(req.Namespace)
+	if len(vpcInfoList) == 0 {
+		return ResultRequeueAfter10sec, nil
+	}
+	if _, err := r.SubnetService.CreateOrUpdateSubnet(subnetCR, vpcInfoList[0], tags); err != nil {
+		if errors.As(err, &util.ExceedTagsError{}) {
+			log.Error(err, "exceed tags limit, would not retry", "Subnet", req.NamespacedName)
+			updateFail(r, ctx, subnetCR, err.Error())
+			return ResultNormal, nil
+		}
+		log.Error(err, "operate failed, would retry exponentially", "Subnet", req.NamespacedName)
+		updateFail(r, ctx, subnetCR, err.Error())
+		return ResultRequeue, err
+	}
+	if err := r.updateSubnetStatus(subnetCR); err != nil {
+		log.Error(err, "update Subnet status failed, would retry exponentially", "Subnet", req.NamespacedName)
+		updateFail(r, ctx, subnetCR, err.Error())
+		return ResultRequeue, err
+	}
+	updateSuccess(r, ctx, subnetCR)
 	return ctrl.Result{}, nil
 }
 
-func (r *SubnetReconciler) DeleteSubnet(obj v1alpha1.Subnet) error {
+func (r *SubnetReconciler) DeleteSubnetByID(obj v1alpha1.Subnet) error {
 	nsxSubnets := r.SubnetService.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetCRUID, string(obj.GetUID()))
-	if len(nsxSubnets) == 0 {
-		log.Info("no subnet found for subnet CR", "uid", string(obj.GetUID()))
-		return nil
+	return r.deleteSubnets(nsxSubnets)
+}
+
+func (r *SubnetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet) error {
+	for _, nsxSubnet := range nsxSubnets {
+		portNums := len(r.SubnetPortService.GetPortsOfSubnet(*nsxSubnet.Id))
+		if portNums > 0 {
+			err := errors.New("subnet still attached by port")
+			log.Error(err, "delete Subnet from NSX failed", "ID", *nsxSubnet.Id)
+			return err
+		}
+		if err := r.SubnetService.DeleteSubnet(*nsxSubnet); err != nil {
+			return err
+		}
 	}
-	portNums := len(r.SubnetPortService.GetPortsOfSubnet(*nsxSubnets[0].Id))
-	if portNums > 0 {
-		err := errors.New("subnet still attached by port")
-		log.Error(err, "", "ID", *nsxSubnets[0].Id)
-		return err
+	return nil
+}
+
+func (r *SubnetReconciler) DeleteSubnetByName(name, namespace string) error {
+	nsxSubnets := r.SubnetService.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetCRNamespacedName, subnet.SubnetNamespacedName(name, namespace))
+	return r.deleteSubnets(nsxSubnets)
+}
+
+func (r *SubnetReconciler) cleanStaleSubnets(name, namespace, id string) error {
+	subnetsToDelete := []*model.VpcSubnet{}
+	nsxSubnets := r.SubnetService.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetCRNamespacedName, subnet.SubnetNamespacedName(name, namespace))
+	for i, nsxSubnet := range nsxSubnets {
+		if *nsxSubnet.Id == id {
+			continue
+		}
+		subnetsToDelete = append(subnetsToDelete, nsxSubnets[i])
 	}
-	return r.SubnetService.DeleteSubnet(*nsxSubnets[0])
+	return r.deleteSubnets(subnetsToDelete)
 }
 
 func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {
@@ -163,7 +188,7 @@ func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {
 	for _, status := range statusList {
 		obj.Status.NetworkAddresses = append(obj.Status.NetworkAddresses, *status.NetworkAddress)
 		obj.Status.GatewayAddresses = append(obj.Status.GatewayAddresses, *status.GatewayAddress)
-		// DHCPServerAddress is only for the subnet with DHCP enabled
+		// DHCPServerAddress is only for the Subnet with DHCP enabled
 		if status.DhcpServerAddress != nil {
 			obj.Status.DHCPServerAddresses = append(obj.Status.DHCPServerAddresses, *status.DhcpServerAddress)
 		}
@@ -209,7 +234,7 @@ func (r *SubnetReconciler) updateSubnetStatusConditions(ctx context.Context, sub
 	}
 	if conditionsUpdated {
 		if err := r.Client.Status().Update(ctx, subnet); err != nil {
-			log.Error(err, "failed to update subnet status", "Name", subnet.Name, "Namespace", subnet.Namespace)
+			log.Error(err, "failed to update Subnet status", "Name", subnet.Name, "Namespace", subnet.Namespace)
 		} else {
 			log.Info("updated Subnet", "Name", subnet.Name, "Namespace", subnet.Namespace, "New Conditions", newConditions)
 		}
@@ -269,12 +294,7 @@ func deleteSuccess(r *SubnetReconciler, _ context.Context, o *v1alpha1.Subnet) {
 func (r *SubnetReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Subnet{}).
-		WithEventFilter(predicate.Funcs{
-			DeleteFunc: func(e event.DeleteEvent) bool {
-				// Suppress Delete events to avoid filtering them out in the Reconcile function
-				return false
-			},
-		}).
+		// WithEventFilter().
 		Watches(
 			&v1.Namespace{},
 			&EnqueueRequestForNamespace{Client: mgr.GetClient()},
@@ -315,11 +335,11 @@ func (r *SubnetReconciler) Start(mgr ctrl.Manager) error {
 
 // CollectGarbage implements the interface GarbageCollector method.
 func (r *SubnetReconciler) CollectGarbage(ctx context.Context) {
-	log.Info("subnet garbage collector started")
+	log.Info("Subnet garbage collector started")
 	crdSubnetList := &v1alpha1.SubnetList{}
 	err := r.Client.List(ctx, crdSubnetList)
 	if err != nil {
-		log.Error(err, "failed to list subnet CR")
+		log.Error(err, "failed to list Subnet CR")
 		return
 	}
 	var nsxSubnetList []*model.VpcSubnet
