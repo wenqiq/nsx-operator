@@ -43,13 +43,14 @@ func Test_IndexFunc(t *testing.T) {
 		if !reflect.DeepEqual(got, []string{"cr_uid"}) {
 			t.Errorf("subnetCRUIDScopeIndexFunc() = %v, want %v", got, model.Tag{Tag: &tag, Scope: &scope})
 		}
+		//
 	})
 }
 
 func Test_KeyFunc(t *testing.T) {
 	id := "test_id"
 	subnet := model.VpcSubnet{Id: &id}
-	t.Run("1", func(t *testing.T) {
+	t.Run("subnetKeyFunc", func(t *testing.T) {
 		got, _ := keyFunc(&subnet)
 		if got != "test_id" {
 			t.Errorf("keyFunc() = %v, want %v", got, "test_id")
@@ -62,7 +63,10 @@ func Test_InitializeSubnetStore(t *testing.T) {
 	cluster, _ := nsx.NewCluster(config2)
 	rc, _ := cluster.NewRestConnector()
 
-	subnetCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSubnetCRUID: subnetIndexFunc})
+	subnetCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{
+		common.TagScopeSubnetCRUID:            subnetIndexFunc,
+		common.TagScopeSubnetCRNamespacedName: subnetNamespacedNameIndexFunc,
+	})
 	service := SubnetService{
 		Service: common.Service{
 			NSXClient: &nsx.Client{
@@ -107,7 +111,10 @@ func Test_InitializeSubnetStore(t *testing.T) {
 }
 
 func TestSubnetStore_Apply(t *testing.T) {
-	subnetCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{common.TagScopeSubnetCRUID: subnetIndexFunc})
+	subnetCacheIndexer := cache.NewIndexer(keyFunc, cache.Indexers{
+		common.TagScopeSubnetCRUID:            subnetIndexFunc,
+		common.TagScopeSubnetCRNamespacedName: subnetNamespacedNameIndexFunc,
+	})
 	resourceStore := common.ResourceStore{
 		Indexer:     subnetCacheIndexer,
 		BindingType: model.SecurityPolicyBindingType(),
