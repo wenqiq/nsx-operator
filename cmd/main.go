@@ -18,6 +18,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -51,6 +52,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	pkgutil "github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -156,6 +158,16 @@ func StartIPAddressAllocationController(mgr ctrl.Manager, ipAddressAllocationSer
 }
 
 func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
+	// Generate webhook certificates, and start refreshing webhook certificates periodically
+	if cf.CoeConfig.EnableVPCNetwork {
+		if err := pkgutil.GenerateWebhookCerts(); err != nil {
+			log.Error(err, "Failed to generate webhook certificates")
+		} else {
+			log.Info("Successfully generated webhook certificates")
+		}
+		go refreshCertPeriodically()
+	}
+
 	//  Embed the common commonService to sub-services.
 	commonService := common.Service{
 		Client:    mgr.GetClient(),
@@ -213,18 +225,26 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		if err := subnet.StartSubnetController(mgr, subnetService, subnetPortService, vpcService); err != nil {
 			os.Exit(1)
 		}
-		enableWebhook := true
+		var hookServer webhook.Server
 		if _, err := os.Stat(config.WebhookCertDir); errors.Is(err, os.ErrNotExist) {
 			log.Error(err, "server cert not found, disabling webhook server", "cert", config.WebhookCertDir)
-			enableWebhook = false
+		} else {
+			hookServer = webhook.NewServer(webhook.Options{
+				Port:    config.WebhookServerPort,
+				CertDir: config.WebhookCertDir,
+			})
+			if err := mgr.Add(hookServer); err != nil {
+				log.Error(err, "failed to add hook server")
+				os.Exit(1)
+			}
 		}
-		if err := subnetset.StartSubnetSetController(mgr, subnetService, subnetPortService, vpcService, enableWebhook); err != nil {
+		if err := subnetset.StartSubnetSetController(mgr, subnetService, subnetPortService, vpcService, hookServer); err != nil {
 			os.Exit(1)
 		}
 
 		node.StartNodeController(mgr, nodeService)
 		staticroutecontroller.StartStaticRouteController(mgr, staticRouteService)
-		subnetport.StartSubnetPortController(mgr, subnetPortService, subnetService, vpcService)
+		subnetport.StartSubnetPortController(mgr, subnetPortService, subnetService, vpcService, hookServer)
 		pod.StartPodController(mgr, subnetPortService, subnetService, vpcService, nodeService)
 		StartIPAddressAllocationController(mgr, ipAddressAllocationService, vpcService)
 		networkpolicycontroller.StartNetworkPolicyController(mgr, commonService, vpcService)
@@ -244,6 +264,15 @@ func electMaster(mgr manager.Manager, nsxClient *nsx.Client) {
 	log.Info("I'm trying to be elected as master")
 	<-mgr.Elected()
 	log.Info("I'm the master now")
+	// In HA mode, there can be a brief period where both the old and new leader
+	// operators are active simultaneously. After a time synchronization by NTP,
+	// the new operator may acquire the lease before the old operator recognizes
+	// it has lost the lease, leading to a potential race condition. To mitigate this,
+	// the new master operator is configured to wait for 15 seconds, which is
+	// slightly longer than the default Leader Election Renew Deadline (10 seconds),
+	// ensuring a smooth transition.
+	log.Info("waiting a 15-second delay to let the old instance know that it has lost its lease")
+	time.Sleep(15 * time.Second)
 	startServiceController(mgr, nsxClient)
 }
 
@@ -343,6 +372,23 @@ func updateLicensePeriodically(nsxClient *nsx.Client, interval time.Duration) {
 		err := nsxClient.ValidateLicense(false)
 		if err != nil {
 			os.Exit(1)
+		}
+	}
+}
+
+func refreshCertPeriodically() {
+	ticker := time.NewTicker(30 * 24 * time.Hour) // 30 days
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			log.Info("Refreshing webhook certificates...")
+			if err := pkgutil.GenerateWebhookCerts(); err != nil {
+				log.Error(err, "Failed to refresh webhook certificates")
+			} else {
+				log.Info("Successfully refreshed webhook certificates")
+			}
 		}
 	}
 }

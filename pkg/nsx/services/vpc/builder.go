@@ -17,19 +17,6 @@ var (
 	defaultLBSName          = "default"
 )
 
-// private ip block cidr is not unique, there maybe different ip blocks using same cidr, but for different vpc cr
-// using cidr_vpccruid as key so that it could quickly check if ipblocks already created.
-func generateIPBlockKey(block model.IpAddressBlock) string {
-	cidr := block.Cidr
-	nsUID := ""
-	for _, tag := range block.Tags {
-		if *tag.Scope == common.TagScopeNamespaceUID {
-			nsUID = *tag.Tag
-		}
-	}
-	return *cidr + "_" + nsUID
-}
-
 func generateLBSKey(lbs model.LBService) (string, error) {
 	if lbs.ConnectivityPath == nil || *lbs.ConnectivityPath == "" {
 		return "", fmt.Errorf("ConnectivityPath is nil or empty")
@@ -43,6 +30,20 @@ func generateLBSKey(lbs model.LBService) (string, error) {
 		return "", fmt.Errorf("the LBS ID is nil or empty")
 	}
 	return combineVPCIDAndLBSID(vpcID, *lbs.Id), nil
+}
+
+func generateVirtualServerKey(vs model.LBVirtualServer) (string, error) {
+	if vs.Path == nil || *vs.Path == "" {
+		return "", fmt.Errorf("LBVirtualServer path is nil or empty")
+	}
+	return *vs.Path, nil
+}
+
+func generatePoolKey(pool model.LBPool) (string, error) {
+	if pool.Path == nil || *pool.Path == "" {
+		return "", fmt.Errorf("LBPool path is nil or empty")
+	}
+	return *pool.Path, nil
 }
 
 func combineVPCIDAndLBSID(vpcID, lbsID string) string {
@@ -81,10 +82,6 @@ func buildNSXVPC(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, nc common.VPCNe
 			Scope: common.String(common.TagScopeVPCManagedBy), Tag: common.String(common.AutoCreatedVPCTagValue)})
 	}
 
-	if nc.VPCConnectivityProfile != "" {
-		vpc.VpcConnectivityProfile = &nc.VPCConnectivityProfile
-	}
-
 	vpc.PrivateIps = nc.PrivateIPs
 	return vpc, nil
 }
@@ -104,4 +101,13 @@ func buildNSXLBS(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster, lbsSiz
 	lbs.ConnectivityPath = &vpcPath
 	lbs.RelaxScaleValidation = relaxScaleValidation
 	return lbs, nil
+}
+
+func buildVpcAttachment(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster string, vpcconnectiveprofile string) (*model.VpcAttachment, error) {
+	attachment := &model.VpcAttachment{}
+	attachment.VpcConnectivityProfile = &vpcconnectiveprofile
+	attachment.DisplayName = common.String(common.DefaultVpcAttachmentId)
+	attachment.Id = common.String(common.DefaultVpcAttachmentId)
+	attachment.Tags = util.BuildBasicTags(cluster, obj, nsObj.GetUID())
+	return attachment, nil
 }

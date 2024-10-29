@@ -2,6 +2,7 @@ package subnetport
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/golang/mock/gomock"
@@ -74,7 +75,7 @@ func TestBuildSubnetPort(t *testing.T) {
 			labelTags: nil,
 			expectedPort: &model.VpcSubnetPort{
 				DisplayName: common.String("fake_subnetport"),
-				Id:          common.String("fake_subnetport-2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				Id:          common.String("fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
 				Tags: []model.Tag{
 					{
 						Scope: common.String("nsx-op/cluster"),
@@ -97,7 +98,7 @@ func TestBuildSubnetPort(t *testing.T) {
 						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
 					},
 				},
-				Path:       common.String("fake_path/ports/fake_subnetport-2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+				Path:       common.String("fake_path/ports/fake_subnetport_2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
 					AllocateAddresses: common.String("DHCP"),
@@ -131,7 +132,7 @@ func TestBuildSubnetPort(t *testing.T) {
 			labelTags: nil,
 			expectedPort: &model.VpcSubnetPort{
 				DisplayName: common.String("fake_pod"),
-				Id:          common.String("fake_pod-c5db1800-ce4c-11de-a935-8105ba7ace78"),
+				Id:          common.String("fake_pod_c5db1800-ce4c-11de-a935-8105ba7ace78"),
 				Tags: []model.Tag{
 					{
 						Scope: common.String("nsx-op/cluster"),
@@ -154,7 +155,7 @@ func TestBuildSubnetPort(t *testing.T) {
 						Tag:   common.String("c5db1800-ce4c-11de-a935-8105ba7ace78"),
 					},
 				},
-				Path:       common.String("fake_path/ports/fake_pod-c5db1800-ce4c-11de-a935-8105ba7ace78"),
+				Path:       common.String("fake_path/ports/fake_pod_c5db1800-ce4c-11de-a935-8105ba7ace78"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
 					AllocateAddresses: common.String("DHCP"),
@@ -175,6 +176,169 @@ func TestBuildSubnetPort(t *testing.T) {
 			assert.Equal(t, tt.expectedPort, observedPort)
 			assert.Equal(t, common.CompareResource(SubnetPortToComparable(tt.expectedPort), SubnetPortToComparable(observedPort)), false)
 			assert.Equal(t, tt.expectedError, err)
+		})
+	}
+
+}
+
+func TestGetAddressBindingBySubnetPort(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	commonService := common.Service{
+		Client: k8sClient,
+	}
+	service := &SubnetPortService{
+		Service: commonService,
+	}
+
+	tests := []struct {
+		name    string
+		sp      *v1alpha1.SubnetPort
+		ab      *v1alpha1.AddressBinding
+		preFunc func()
+	}{
+		{
+			name: "Succuss",
+			sp: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{"nsx.vmware.com/attachment_ref": "VirtualMachine/vm/port"},
+				},
+			},
+			preFunc: func() {
+				abList := &v1alpha1.AddressBindingList{}
+				k8sClient.EXPECT().List(gomock.Any(), abList, gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					a := list.(*v1alpha1.AddressBindingList)
+					a.Items = append(a.Items, v1alpha1.AddressBinding{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: "ns",
+							Name:      "AddressBinding-1",
+						},
+					})
+					return nil
+				})
+				subnetPortList := &v1alpha1.SubnetPortList{}
+				k8sClient.EXPECT().List(gomock.Any(), subnetPortList, gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					a := list.(*v1alpha1.SubnetPortList)
+					a.Items = append(a.Items, v1alpha1.SubnetPort{})
+					return nil
+				})
+			},
+			ab: &v1alpha1.AddressBinding{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns",
+					Name:      "AddressBinding-1",
+				},
+			},
+		},
+		{
+			name: "InvalidAnnotation",
+			sp: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{"nsx.vmware.com/attachment_ref": "VirtualMachine/non-existed"},
+				},
+			},
+			preFunc: func() {
+			},
+		},
+		{
+			name: "NoAnnotation",
+			sp:   &v1alpha1.SubnetPort{},
+			preFunc: func() {
+			},
+		},
+		{
+			name: "ListAddressBindingFailure",
+			sp: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{"nsx.vmware.com/attachment_ref": "VirtualMachine/vm/port"},
+				},
+			},
+			preFunc: func() {
+				abList := &v1alpha1.AddressBindingList{}
+				k8sClient.EXPECT().List(gomock.Any(), abList, gomock.Any()).Return(fmt.Errorf("mock error"))
+			},
+		},
+		{
+			name: "ListSubnetPortFailure",
+			sp: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{"nsx.vmware.com/attachment_ref": "VirtualMachine/vm/port"},
+				},
+			},
+			preFunc: func() {
+				abList := &v1alpha1.AddressBindingList{}
+				k8sClient.EXPECT().List(gomock.Any(), abList, gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					a := list.(*v1alpha1.AddressBindingList)
+					a.Items = append(a.Items, v1alpha1.AddressBinding{})
+					return nil
+				})
+				subnetPortList := &v1alpha1.SubnetPortList{}
+				k8sClient.EXPECT().List(gomock.Any(), subnetPortList, gomock.Any()).Return(fmt.Errorf("mock error"))
+			},
+		},
+		{
+			name: "MultipleSubnetPort",
+			sp: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{"nsx.vmware.com/attachment_ref": "VirtualMachine/vm/port"},
+				},
+			},
+			preFunc: func() {
+				abList := &v1alpha1.AddressBindingList{}
+				k8sClient.EXPECT().List(gomock.Any(), abList, gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					a := list.(*v1alpha1.AddressBindingList)
+					a.Items = append(a.Items, v1alpha1.AddressBinding{})
+					return nil
+				})
+				subnetPortList := &v1alpha1.SubnetPortList{}
+				k8sClient.EXPECT().List(gomock.Any(), subnetPortList, gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					a := list.(*v1alpha1.SubnetPortList)
+					a.Items = append(a.Items, v1alpha1.SubnetPort{}, v1alpha1.SubnetPort{})
+					return nil
+				})
+			},
+		},
+		{
+			name: "PortInInterfaceName",
+			sp: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{"nsx.vmware.com/attachment_ref": "VirtualMachine/vm/port"},
+				},
+			},
+			preFunc: func() {
+				abList := &v1alpha1.AddressBindingList{}
+				k8sClient.EXPECT().List(gomock.Any(), abList, gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					a := list.(*v1alpha1.AddressBindingList)
+					a.Items = append(a.Items, v1alpha1.AddressBinding{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: "ns",
+							Name:      "AddressBinding-1",
+						},
+						Spec: v1alpha1.AddressBindingSpec{
+							InterfaceName: "port",
+						},
+					})
+					return nil
+				})
+			},
+			ab: &v1alpha1.AddressBinding{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns",
+					Name:      "AddressBinding-1",
+				},
+				Spec: v1alpha1.AddressBindingSpec{
+					InterfaceName: "port",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.preFunc()
+			actualAb := service.GetAddressBindingBySubnetPort(tt.sp)
+			assert.Equal(t, tt.ab, actualAb)
 		})
 	}
 

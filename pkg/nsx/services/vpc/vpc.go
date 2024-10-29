@@ -7,12 +7,14 @@ import (
 	"strings"
 	"sync"
 
-	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
+	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
+	apirrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -26,21 +28,15 @@ import (
 type LBProvider string
 
 const (
-	VpcDefaultSecurityPolicyId = "default-layer3-section"
-	VPCKey                     = "/orgs/%s/projects/%s/vpcs/%s"
-	GroupKey                   = "/orgs/%s/projects/%s/vpcs/%s/groups/%s"
-	SecurityPolicyKey          = "/orgs/%s/projects/%s/vpcs/%s/security-policies/%s"
-	RuleKey                    = "/orgs/%s/projects/%s/vpcs/%s/security-policies/%s/rules/%s"
-	albEndpointPath            = "policy/api/v1/infra/sites/default/enforcement-points/alb-endpoint"
-	edgeClusterPath            = "api/v1/edge-clusters"
-	NSXLB                      = LBProvider("nsx-lb")
-	AVILB                      = LBProvider("avi")
-	NoneLB                     = LBProvider("none")
+	VPCKey          = "/orgs/%s/projects/%s/vpcs/%s"
+	albEndpointPath = "policy/api/v1/infra/sites/default/enforcement-points/alb-endpoint"
+	NSXLB           = LBProvider("nsx-lb")
+	AVILB           = LBProvider("avi")
+	NoneLB          = LBProvider("none")
 )
 
 var (
 	log                       = &logger.Log
-	ctx                       = context.Background()
 	ResourceTypeVPC           = common.ResourceTypeVpc
 	NewConverter              = common.NewConverter
 	globalLbProvider          = NoneLB
@@ -63,7 +59,6 @@ type VPCService struct {
 	common.Service
 	VpcStore                *VPCStore
 	LbsStore                *LBSStore
-	IpblockStore            *IPBlockStore
 	VPCNetworkConfigStore   VPCNetworkInfoStore
 	VPCNSNetworkConfigStore VPCNsNetworkConfigStore
 	defaultNetworkConfigCR  *common.VPCNetworkConfigInfo
@@ -160,22 +155,17 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 		BindingType: model.LBServiceBindingType(),
 	}}
 
-	VPCService.IpblockStore = &IPBlockStore{ResourceStore: common.ResourceStore{
-		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
-			common.IndexKeyPathPath: indexPathFunc}),
-		BindingType: model.IpAddressBlockBindingType(),
-	}}
 	VPCService.VPCNetworkConfigStore = VPCNetworkInfoStore{
 		VPCNetworkConfigMap: make(map[string]common.VPCNetworkConfigInfo),
 	}
 	VPCService.VPCNSNetworkConfigStore = VPCNsNetworkConfigStore{
 		VPCNSNetworkConfigMap: make(map[string]string),
 	}
-	// initialize vpc store, lbs store and ip blocks store
+	// initialize vpc store, lbs store
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, VPCService.VpcStore)
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeLBService, nil, VPCService.LbsStore)
-	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeIPBlock, nil, VPCService.IpblockStore)
-	wg.Add(3)
+
+	wg.Add(2)
 	go func() {
 		wg.Wait()
 		close(wgDone)
@@ -192,10 +182,10 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	return VPCService, nil
 }
 
-func (s *VPCService) GetVPCsByNamespace(namespace string) []*model.Vpc {
-	sns, err := s.getSharedVPCNamespaceFromNS(namespace)
+func (s *VPCService) GetVPCsByNamespace(ctx context.Context, namespace string) []*model.Vpc {
+	sns, err := s.getSharedVPCNamespaceFromNS(ctx, namespace)
 	if err != nil {
-		log.Error(err, "Failed to get namespace.")
+		log.Error(err, "Failed to get Namespace.")
 		return nil
 	}
 	return s.VpcStore.GetVPCsByNamespace(util.If(sns == "", namespace, sns).(string))
@@ -203,31 +193,36 @@ func (s *VPCService) GetVPCsByNamespace(namespace string) []*model.Vpc {
 
 func (s *VPCService) ListVPC() []model.Vpc {
 	vpcs := s.VpcStore.List()
-	vpcSet := []model.Vpc{}
+	var vpcSet []model.Vpc
 	for _, vpc := range vpcs {
 		vpcSet = append(vpcSet, *vpc.(*model.Vpc))
 	}
 	return vpcSet
 }
 
+// DeleteVPC will try to delete VPC resource from NSX.
 func (s *VPCService) DeleteVPC(path string) error {
 	pathInfo, err := common.ParseVPCResourcePath(path)
 	if err != nil {
 		return err
 	}
 	vpcClient := s.NSXClient.VPCClient
-	vpc := s.VpcStore.GetByKey(pathInfo.VPCID)
-	if vpc == nil {
-		return nil
-	}
 
-	if err := vpcClient.Delete(pathInfo.OrgID, pathInfo.ProjectID, pathInfo.VPCID); err != nil {
+	if err := vpcClient.Delete(pathInfo.OrgID, pathInfo.ProjectID, pathInfo.VPCID, common.Bool(true)); err != nil {
 		err = nsxutil.TransNSXApiError(err)
 		return err
 	}
 	lbs := s.LbsStore.GetByKey(pathInfo.VPCID)
 	if lbs != nil {
 		s.LbsStore.Delete(lbs)
+	}
+
+	vpc := s.VpcStore.GetByKey(pathInfo.VPCID)
+	// When deleting vpc due to realization failure in VPC creation process. the VPC is created on NSX side,
+	// but not insert in to VPC store, in this condition, the vpc could not be found in vpc store.
+	if vpc == nil {
+		log.Info("VPC not found in vpc store, skip cleaning VPC store", "VPC", pathInfo.VPCID)
+		return nil
 	}
 	vpc.MarkedForDelete = &MarkedForDelete
 	if err := s.VpcStore.Apply(vpc); err != nil {
@@ -241,6 +236,13 @@ func (s *VPCService) DeleteVPC(path string) error {
 func (s *VPCService) addClusterTag(query string) string {
 	tagScopeClusterKey := strings.Replace(common.TagScopeNCPCluster, "/", "\\/", -1)
 	tagScopeClusterValue := strings.Replace(s.NSXClient.NsxConfig.Cluster, ":", "\\:", -1)
+	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
+	return query + " AND " + tagParam
+}
+
+func (s *VPCService) addNCPCreatedForTag(query string) string {
+	tagScopeClusterKey := strings.Replace(common.TagScopeNCPCreateFor, "/", "\\/", -1)
+	tagScopeClusterValue := strings.Replace(common.TagValueSLB, ":", "\\:", -1)
 	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
 	return query + " AND " + tagParam
 }
@@ -436,69 +438,114 @@ func (s *VPCService) DeleteLBMonitorProfile(id string) error {
 	return nil
 }
 
-func (s *VPCService) deleteIPBlock(path string) error {
-	ipblockClient := s.NSXClient.IPBlockClient
-	parts := strings.Split(path, "/")
-	log.Info("deleting private ip block", "ORG", parts[2], "Project", parts[4], "ID", parts[7])
-	if err := ipblockClient.Delete(parts[2], parts[4], parts[7]); err != nil {
-		err = nsxutil.TransNSXApiError(err)
-		log.Error(err, "failed to delete ip block", "Path", path)
-		return err
+func (s *VPCService) ListLBVirtualServer() []model.LBVirtualServer {
+	store := &ResourceStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.LBVirtualServerBindingType(),
+	}}
+	query := fmt.Sprintf("(%s:%s)",
+		common.ResourceType, common.ResourceTypeLBVirtualServer)
+	query = s.addClusterTag(query)
+	query = s.addNCPCreatedForTag(query)
+	count, searcherr := s.SearchResource("", query, store, nil)
+	if searcherr != nil {
+		log.Error(searcherr, "failed to query LBVirtualServer", "query", query)
+	} else {
+		log.V(1).Info("query LBVirtualServer", "count", count)
 	}
-	return nil
+	lbVirtualServers := store.List()
+	lbVirtualServersSet := []model.LBVirtualServer{}
+	for _, lbVirtualServer := range lbVirtualServers {
+		lbVirtualServersSet = append(lbVirtualServersSet, *lbVirtualServer.(*model.LBVirtualServer))
+	}
+	return lbVirtualServersSet
 }
 
-func (s *VPCService) DeleteIPBlockInVPC(vpc model.Vpc) error {
-	blocks := vpc.PrivateIpv4Blocks
-	if len(blocks) == 0 {
-		log.Info("no private cidr list, skip deleting private ip blocks")
+func (s *VPCService) DeleteLBVirtualServer(path string) error {
+	lbVirtualServersClient := s.NSXClient.VpcLbVirtualServersClient
+	boolValue := false
+	paths := strings.Split(path, "/")
+
+	if len(paths) < common.VPCLbResourcePathMinSegments {
+		// skip virtual server under infra
+		log.Info("failed to parse virtual server path", "path", path)
 		return nil
 	}
-
-	for _, block := range blocks {
-		if err := s.deleteIPBlock(block); err != nil {
-			return err
-		}
-		nsUID := ""
-		for _, tag := range vpc.Tags {
-			if *tag.Scope == common.TagScopeNamespaceUID {
-				nsUID = *tag.Tag
-			}
-		}
-		log.V(2).Info("search ip block from store using index and path", "index", common.TagScopeNamespaceUID, "Value", nsUID, "Path", block)
-		// using index vpc cr id may get multiple ipblocks, add path to filter the correct one
-		ipblock := s.IpblockStore.GetByIndex(common.IndexKeyPathPath, block)
-		if ipblock != nil {
-			log.Info("deleting ip blocks", "IPBlock", ipblock)
-			ipblock.MarkedForDelete = &MarkedForDelete
-			s.IpblockStore.Apply(ipblock)
-		}
+	if err := lbVirtualServersClient.Delete(paths[2], paths[4], paths[6], paths[8], &boolValue); err != nil {
+		return err
 	}
-	log.Info("successfully deleted all ip blocks")
+	log.Info("successfully deleted NCP created lbVirtualServer", "lbVirtualServer", path)
 	return nil
 }
 
-func (s *VPCService) IsSharedVPCNamespaceByNS(ns string) (bool, error) {
-	shared_ns, err := s.getSharedVPCNamespaceFromNS(ns)
+func (s *VPCService) ListLBPool() []model.LBPool {
+	store := &ResourceStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.LBPoolBindingType(),
+	}}
+	query := fmt.Sprintf("(%s:%s)",
+		common.ResourceType, common.ResourceTypeLBPool)
+	query = s.addClusterTag(query)
+	query = s.addNCPCreatedForTag(query)
+	count, searcherr := s.SearchResource("", query, store, nil)
+	if searcherr != nil {
+		log.Error(searcherr, "failed to query LBPool", "query", query)
+	} else {
+		log.V(1).Info("query LBPool", "count", count)
+	}
+	lbPools := store.List()
+	lbPoolsSet := []model.LBPool{}
+	for _, lbPool := range lbPools {
+		lbPoolsSet = append(lbPoolsSet, *lbPool.(*model.LBPool))
+	}
+	return lbPoolsSet
+}
+
+func (s *VPCService) DeleteLBPool(path string) error {
+	lbPoolsClient := s.NSXClient.VpcLbPoolsClient
+	boolValue := false
+	paths := strings.Split(path, "/")
+	if len(paths) < 8 {
+		// skip lb pool under infra
+		log.Info("failed to parse lb pool path", "path", path)
+		return nil
+	}
+	if err := lbPoolsClient.Delete(paths[2], paths[4], paths[6], paths[8], &boolValue); err != nil {
+		return err
+	}
+	log.Info("successfully deleted NCP created lbPool", "lbPool", path)
+	return nil
+}
+
+func (s *VPCService) IsSharedVPCNamespaceByNS(ctx context.Context, ns string) (bool, error) {
+	sharedNS, err := s.getSharedVPCNamespaceFromNS(ctx, ns)
 	if err != nil {
+		if apirrors.IsNotFound(err) {
+			return false, nil
+		}
 		return false, err
 	}
-	if shared_ns == "" {
+	if sharedNS == "" {
 		return false, nil
 	}
-	if shared_ns != ns {
+	if sharedNS != ns {
 		return true, nil
 	}
 	return false, err
 }
 
-func (s *VPCService) getSharedVPCNamespaceFromNS(ns string) (string, error) {
+func getNamespace(c client.Client, ctx context.Context, ns string) (*v1.Namespace, error) {
 	obj := &v1.Namespace{}
-	if err := s.Client.Get(ctx, types.NamespacedName{
-		Name:      ns,
-		Namespace: ns,
-	}, obj); err != nil {
-		log.Error(err, "failed to fetch namespace", "Namespace", ns)
+	if err := c.Get(ctx, types.NamespacedName{Name: ns}, obj); err != nil {
+		log.Error(err, "Failed to fetch Namespace", "Namespace", ns)
+		return nil, err
+	}
+	return obj, nil
+}
+
+func (s *VPCService) getSharedVPCNamespaceFromNS(ctx context.Context, ns string) (string, error) {
+	obj, err := getNamespace(s.Client, ctx, ns)
+	if err != nil {
 		return "", err
 	}
 
@@ -516,13 +563,9 @@ func (s *VPCService) getSharedVPCNamespaceFromNS(ns string) (string, error) {
 	return shared_ns, nil
 }
 
-func (s *VPCService) GetNetworkconfigNameFromNS(ns string) (string, error) {
-	obj := &v1.Namespace{}
-	if err := s.Client.Get(ctx, types.NamespacedName{
-		Name:      ns,
-		Namespace: ns,
-	}, obj); err != nil {
-		log.Error(err, "failed to fetch namespace", "Namespace", ns)
+func (s *VPCService) GetNetworkconfigNameFromNS(ctx context.Context, ns string) (string, error) {
+	obj, err := getNamespace(s.Client, ctx, ns)
+	if err != nil {
 		return "", err
 	}
 
@@ -656,16 +699,18 @@ func (s *VPCService) IsLBProviderChanged(existingVPC *model.Vpc, lbProvider LBPr
 	}
 	return false
 }
-func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPCNetworkConfigInfo, lbProvider LBProvider) (*model.Vpc, error) {
-	// check from VPC store if vpc already exist
+
+func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.NetworkInfo, nc *common.VPCNetworkConfigInfo, lbProvider LBProvider) (*model.Vpc, error) {
+	// check from VPC store if VPC already exist
 	ns := obj.Namespace
-	updateVpc := false
 	nsObj := &v1.Namespace{}
-	// get name obj
+	// get Namespace
 	if err := s.Client.Get(ctx, types.NamespacedName{Name: obj.Namespace}, nsObj); err != nil {
-		log.Error(err, "unable to fetch namespace", "name", obj.Namespace)
+		log.Error(err, "Unable to fetch Namespace", "Name", obj.Namespace)
 		return nil, err
 	}
+
+	updateVpc := false
 
 	// Return pre-created VPC resource if it is used in the VPCNetworkConfiguration
 	if IsPreCreatedVPC(*nc) {
@@ -680,12 +725,12 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPC
 	// check if this namespace vpc share from others, if yes
 	// then check if the shared vpc created or not, if yes
 	// then directly return this vpc, if not, requeue
-	isShared, err := s.IsSharedVPCNamespaceByNS(ns)
+	isShared, err := s.IsSharedVPCNamespaceByNS(ctx, ns)
 	if err != nil {
 		return nil, err
 	}
 
-	existingVPC := s.GetVPCsByNamespace(ns)
+	existingVPC := s.GetVPCsByNamespace(ctx, ns)
 	if len(existingVPC) != 0 { // We now consider only one VPC for one namespace
 		if isShared {
 			log.Info("The shared VPC already exist", "Namespace", ns)
@@ -732,7 +777,8 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPC
 		createdLBS, _ = buildNSXLBS(obj, nsObj, s.NSXConfig.Cluster, lbsSize, vpcPath, relaxScaleValidation)
 	}
 	// build HAPI request
-	orgRoot, err := s.WrapHierarchyVPC(nc.Org, nc.NSXProject, createdVpc, createdLBS)
+	createdAttachment, _ := buildVpcAttachment(obj, nsObj, s.NSXConfig.Cluster, nc.VPCConnectivityProfile)
+	orgRoot, err := s.WrapHierarchyVPC(nc.Org, nc.NSXProject, createdVpc, createdLBS, createdAttachment)
 	if err != nil {
 		log.Error(err, "failed to build HAPI request")
 		return nil, err
@@ -773,7 +819,6 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPC
 		if realizestate.IsRealizeStateError(err) {
 			log.Error(err, "the created VPC is in error realization state, cleaning the resource", "VPC", *createdVpc.Id)
 			// delete the nsx vpc object and re-create it in the next loop
-			// TODO(gran) DeleteVPC will check VpcStore but new Vpc is not in store at this moment. Is it correct?
 			if err := s.DeleteVPC(*newVpc.Path); err != nil {
 				log.Error(err, "cleanup VPC failed", "VPC", *createdVpc.Id)
 				return nil, err
@@ -809,6 +854,28 @@ func (s *VPCService) CreateOrUpdateVPC(obj *v1alpha1.NetworkInfo, nc *common.VPC
 		}
 	}
 
+	// Check VpcAttachment realization
+	if createdAttachment != nil {
+		newAttachment, err := s.NSXClient.VpcAttachmentClient.Get(nc.Org, nc.NSXProject, *createdVpc.Id, *createdAttachment.Id)
+		if err != nil || newAttachment.VpcConnectivityProfile == nil {
+			log.Error(err, "failed to read VPC attachment object after creating or updating", "VpcAttachment", createdAttachment.Id)
+			return nil, err
+		}
+		log.V(2).Info("check VPC attachment realization state", "VpcAttachment", *createdAttachment.Id)
+		realizeService := realizestate.InitializeRealizeState(s.Service)
+		if err = realizeService.CheckRealizeState(util.NSXTLBVSDefaultRetry, *newAttachment.Path, ""); err != nil {
+			log.Error(err, "failed to check VPC attachment realization state", "VpcAttachment", *createdAttachment.Id)
+			if realizestate.IsRealizeStateError(err) {
+				log.Error(err, "the created VPC attachment is in error realization state, cleaning the resource", "VpcAttachment", *createdAttachment.Id)
+				// delete the nsx vpc object and re-create it in the next loop
+				if err := s.DeleteVPC(*newVpc.Path); err != nil {
+					log.Error(err, "cleanup VPC failed", "VPC", *createdVpc.Id)
+					return nil, err
+				}
+			}
+			return nil, err
+		}
+	}
 	return &newVpc, nil
 }
 
@@ -826,7 +893,7 @@ func (s *VPCService) GetGatewayConnectionTypeFromConnectionPath(connectionPath s
 
 func (s *VPCService) ValidateGatewayConnectionStatus(nc *common.VPCNetworkConfigInfo) (bool, string, error) {
 	var connectionPaths []string // i.e. gateway connection paths
-	var profiles []model.VpcConnectivityProfile
+	// var profiles []model.VpcConnectivityProfile
 	var cursor *string
 	pageSize := int64(1000)
 	markedForDelete := false
@@ -835,13 +902,14 @@ func (s *VPCService) ValidateGatewayConnectionStatus(nc *common.VPCNetworkConfig
 	if err != nil {
 		return false, "", err
 	}
-	profiles = append(profiles, res.Results...)
-	for _, profile := range profiles {
+	// profiles = append(profiles, res.Results...)
+	for _, profile := range res.Results {
 		transitGatewayPath := *profile.TransitGatewayPath
 		parts := strings.Split(transitGatewayPath, "/")
 		transitGatewayId := parts[len(parts)-1]
 		res, err := s.NSXClient.TransitGatewayAttachmentClient.List(nc.Org, nc.NSXProject, transitGatewayId, nil, &markedForDelete, nil, nil, nil, nil)
 		err = nsxutil.TransNSXApiError(err)
+
 		if err != nil {
 			return false, "", err
 		}
@@ -886,19 +954,6 @@ func (s *VPCService) Cleanup(ctx context.Context) error {
 		}
 	}
 
-	ipblocks := s.IpblockStore.List()
-	log.Info("cleaning up ipblocks", "Count", len(ipblocks))
-	for _, ipblock := range ipblocks {
-		ipb := ipblock.(*model.IpAddressBlock)
-		select {
-		case <-ctx.Done():
-			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
-		default:
-			if err := s.deleteIPBlock(*ipb.Path); err != nil {
-				return err
-			}
-		}
-	}
 	// Delete NCP created resources (share/sharedResources/cert/LBAppProfile/LBPersistentProfile
 	sharedResources := s.ListSharedResource()
 	log.Info("cleaning up sharedResources", "Count", len(sharedResources))
@@ -978,6 +1033,33 @@ func (s *VPCService) Cleanup(ctx context.Context) error {
 			}
 		}
 	}
+
+	// Clean vs/lb pool created for pre-created vpc
+	lbVirtualServers := s.ListLBVirtualServer()
+	log.Info("cleaning up lbVirtualServers", "Count", len(lbVirtualServers))
+	for _, lbVirtualServer := range lbVirtualServers {
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			if err := s.DeleteLBVirtualServer(*lbVirtualServer.Path); err != nil {
+				return err
+			}
+		}
+	}
+
+	lbPools := s.ListLBPool()
+	log.Info("cleaning up lbPools", "Count", len(lbPools))
+	for _, lbPool := range lbPools {
+		select {
+		case <-ctx.Done():
+			return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
+		default:
+			if err := s.DeleteLBPool(*lbPool.Path); err != nil {
+				return err
+			}
+		}
+	}
 	// We don't clean client_ssl_profile as client_ssl_profile is not created by ncp or nsx-operator
 	return nil
 }
@@ -997,11 +1079,11 @@ func (s *VPCService) ListVPCInfo(ns string) []common.VPCResourceInfo {
 	}
 
 	// List VPCs from local store.
-	vpcs := s.GetVPCsByNamespace(ns) // Transparently call the VPCService.GetVPCsByNamespace method
+	vpcs := s.GetVPCsByNamespace(context.Background(), ns) // Transparently call the VPCService.GetVPCsByNamespace method
 	for _, v := range vpcs {
 		vpcResourceInfo, err := common.ParseVPCResourcePath(*v.Path)
 		if err != nil {
-			log.Error(err, "Failed to get vpc info from vpc path", "vpc path", *v.Path)
+			log.Error(err, "Failed to get VPC info from VPC path", "VPCPath", *v.Path)
 		}
 		vpcResourceInfo.PrivateIpv4Blocks = v.PrivateIpv4Blocks
 		VPCInfoList = append(VPCInfoList, vpcResourceInfo)
@@ -1017,36 +1099,37 @@ func (s *VPCService) GetDefaultNSXLBSPathByVPC(vpcID string) string {
 	return *vpcLBS.Path
 }
 
-func (vpcService *VPCService) EdgeClusterEnabled(nc *common.VPCNetworkConfigInfo) bool {
-	var vpcConnectivityProfile *model.VpcConnectivityProfile
-	var getErr error
-	if err := retry.OnError(retry.DefaultBackoff, func(err error) bool {
+func (s *VPCService) EdgeClusterEnabled(nc *common.VPCNetworkConfigInfo) bool {
+	isRetryableError := func(err error) bool {
 		if err == nil {
 			return false
 		}
-		_, errortype := nsxutil.DumpAPIError(err)
-		if errortype != nil && (*errortype == apierrors.ErrorType_SERVICE_UNAVAILABLE || *errortype == apierrors.ErrorType_TIMED_OUT) {
-			return true
-		} else {
-			return false
+		_, errorType := nsxutil.DumpAPIError(err)
+		return errorType != nil && (*errorType == stderrors.ErrorType_SERVICE_UNAVAILABLE || *errorType == stderrors.ErrorType_TIMED_OUT)
+	}
+
+	var vpcConnectivityProfile *model.VpcConnectivityProfile
+	if err := retry.OnError(retry.DefaultBackoff, isRetryableError, func() error {
+		var getErr error
+		vpcConnectivityProfile, getErr = s.GetVpcConnectivityProfile(nc, nc.VPCConnectivityProfile)
+		if getErr != nil {
+			return getErr
 		}
-	}, func() error {
-		vpcConnectivityProfile, getErr = vpcService.GetVpcConnectivityProfile(nc, nc.VPCConnectivityProfile)
-		return getErr
-	}); err == nil {
-		log.Info("vpc connectivity profile", "service gateway enable", *vpcConnectivityProfile.ServiceGateway.Enable)
-		return vpcService.IsEnableAutoSNAT(vpcConnectivityProfile)
-	} else {
-		log.Error(getErr, "failed to get vpc connectivity profile", "vpc connectivity profile", nc.VPCConnectivityProfile)
+		log.V(1).Info("VPC connectivity profile retrieved", "profile", *vpcConnectivityProfile)
+		return nil
+	}); err != nil {
+		log.Error(err, "Failed to retrieve VPC connectivity profile", "profile", nc.VPCConnectivityProfile)
 		return false
 	}
+	return s.IsEnableAutoSNAT(vpcConnectivityProfile)
 }
+
 func GetAlbEndpoint(cluster *nsx.Cluster) error {
 	_, err := cluster.HttpGet(albEndpointPath)
 	return err
 }
 
-func (vpcService *VPCService) IsEnableAutoSNAT(vpcConnectivityProfile *model.VpcConnectivityProfile) bool {
+func (s *VPCService) IsEnableAutoSNAT(vpcConnectivityProfile *model.VpcConnectivityProfile) bool {
 	if vpcConnectivityProfile.ServiceGateway == nil || vpcConnectivityProfile.ServiceGateway.Enable == nil {
 		return false
 	}
@@ -1058,33 +1141,35 @@ func (vpcService *VPCService) IsEnableAutoSNAT(vpcConnectivityProfile *model.Vpc
 	}
 	return false
 }
-func (vpcService *VPCService) GetLBProvider() LBProvider {
+
+func (s *VPCService) GetLBProvider() LBProvider {
 	lbProviderMutex.Lock()
 	defer lbProviderMutex.Unlock()
 	if globalLbProvider != NoneLB {
-		log.V(1).Info("lb provider", "current provider", globalLbProvider)
+		log.V(1).Info("LB provider", "current provider", globalLbProvider)
 		return globalLbProvider
 	}
 
 	ncName := common.SystemVPCNetworkConfigurationName
-	netConfig, found := vpcService.GetVPCNetworkConfig(ncName)
+	netConfig, found := s.GetVPCNetworkConfig(ncName)
 	if !found {
-		log.Info("get lb provider", "No system network config found", ncName)
+		log.Info("Get lb provider", "No system network config found", ncName)
 		return NoneLB
 	}
 	nc := &netConfig
 
-	edgeEnable := vpcService.EdgeClusterEnabled(nc)
-	globalLbProvider = vpcService.getLBProvider(edgeEnable)
+	edgeEnable := s.EdgeClusterEnabled(nc)
+	globalLbProvider = s.getLBProvider(edgeEnable)
 	log.Info("lb provider", "provider", globalLbProvider)
 	return globalLbProvider
 }
-func (vpcService *VPCService) getLBProvider(edgeEnable bool) LBProvider {
+
+func (s *VPCService) getLBProvider(edgeEnable bool) LBProvider {
 	// if no Alb endpoint found, return nsx-lb
 	// if found, and nsx lbs found, return nsx-lb
 	// else return avi
 	log.Info("checking lb provider")
-	if vpcService.Service.NSXConfig.UseAVILoadBalancer {
+	if s.Service.NSXConfig.UseAVILoadBalancer {
 		albEndpointFound := false
 		if err := retry.OnError(retry.DefaultBackoff, func(err error) bool {
 			if err == nil {
@@ -1096,11 +1181,11 @@ func (vpcService *VPCService) getLBProvider(edgeEnable bool) LBProvider {
 				return false
 			}
 		}, func() error {
-			return GetAlbEndpoint(vpcService.Service.NSXClient.Cluster)
+			return GetAlbEndpoint(s.Service.NSXClient.Cluster)
 		}); err == nil {
 			albEndpointFound = true
 		}
-		if albEndpointFound && len(vpcService.LbsStore.List()) == 0 {
+		if albEndpointFound && len(s.LbsStore.List()) == 0 {
 			return AVILB
 		}
 	}
@@ -1126,14 +1211,14 @@ func (s *VPCService) GetVPCFromNSXByPath(vpcPath string) (*model.Vpc, error) {
 	return &vpc, nil
 }
 
-func (service *VPCService) GetLBSsFromNSXByVPC(vpcPath string) (string, error) {
+func (s *VPCService) GetLBSsFromNSXByVPC(vpcPath string) (string, error) {
 	vpcResInfo, err := common.ParseVPCResourcePath(vpcPath)
 	if err != nil {
 		log.Error(err, "failed to parse VPCResourceInfo from the given VPC path", "VPC", vpcPath)
 		return "", err
 	}
 	includeMarkForDeleted := false
-	lbs, err := service.NSXClient.VPCLBSClient.List(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID, nil, &includeMarkForDeleted, nil, nil, nil, nil)
+	lbs, err := s.NSXClient.VPCLBSClient.List(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID, nil, &includeMarkForDeleted, nil, nil, nil, nil)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to read LB services in VPC under from NSX", "VPC", vpcPath)
@@ -1145,6 +1230,44 @@ func (service *VPCService) GetLBSsFromNSXByVPC(vpcPath string) (string, error) {
 	}
 	lbsPath := *lbs.Results[0].Path
 	return lbsPath, nil
+}
+
+// GetAllVPCsFromNSX gets all the existing VPCs on NSX. It returns a map, the key is VPC's path, and the
+// value is the VPC resource.
+func (s *VPCService) GetAllVPCsFromNSX() map[string]model.Vpc {
+	store := &ResourceStore{ResourceStore: common.ResourceStore{
+		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+		BindingType: model.VpcBindingType(),
+	}}
+	query := fmt.Sprintf("(%s:%s)", common.ResourceType, common.ResourceTypeVpc)
+	count, searcherr := s.SearchResource("", query, store, nil)
+	if searcherr != nil {
+		log.Error(searcherr, "failed to query VPC from NSX", "query", query)
+	} else {
+		log.V(1).Info("query VPC", "count", count)
+	}
+	vpcMap := make(map[string]model.Vpc)
+	for _, obj := range store.List() {
+		vpc := *obj.(*model.Vpc)
+		vpcPath := vpc.Path
+		vpcMap[*vpcPath] = vpc
+	}
+	return vpcMap
+}
+
+// GetNamespacesWithPreCreatedVPCs returns a map of the Namespaces which use the pre-created VPCs. The
+// key of the map is the Namespace name, and the value is the pre-created VPC path used in the NetworkInfo
+// within this Namespace.
+func (s *VPCService) GetNamespacesWithPreCreatedVPCs() map[string]string {
+	nsVpcMap := make(map[string]string)
+	for ncName, cfg := range s.VPCNetworkConfigStore.VPCNetworkConfigMap {
+		if IsPreCreatedVPC(cfg) {
+			for _, ns := range s.GetNamespacesByNetworkconfigName(ncName) {
+				nsVpcMap[ns] = cfg.VPCPath
+			}
+		}
+	}
+	return nsVpcMap
 }
 
 func IsPreCreatedVPC(nc common.VPCNetworkConfigInfo) bool {

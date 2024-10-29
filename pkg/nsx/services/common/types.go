@@ -21,10 +21,12 @@ const (
 	MaxIdLength                        int    = 255
 	MaxNameLength                      int    = 255
 	MaxSubnetNameLength                int    = 80
+	VPCLbResourcePathMinSegments       int    = 8
 	PriorityNetworkPolicyAllowRule     int    = 2010
 	PriorityNetworkPolicyIsolationRule int    = 2090
 	TagScopeNCPCluster                 string = "ncp/cluster"
 	TagScopeNCPProjectUID              string = "ncp/project_uid"
+	TagScopeNCPCreateFor               string = "ncp/created_for"
 	TagScopeNCPVIFProjectUID           string = "ncp/vif_project_uid"
 	TagScopeNCPPod                     string = "ncp/pod"
 	TagScopeNCPVNETInterface           string = "ncp/vnet_interface"
@@ -80,7 +82,6 @@ const (
 	TagValueShareCreatedForInfra       string = "infra"
 	TagValueShareCreatedForProject     string = "project"
 	TagValueShareNotCreated            string = "notShared"
-	TagValueGroupAvi                   string = "avi"
 	TagValueSLB                        string = "SLB"
 	AnnotationVPCNetworkConfig         string = "nsx.vmware.com/vpc_network_config"
 	AnnotationSharedVPCNamespace       string = "nsx.vmware.com/shared_vpc_namespace"
@@ -91,6 +92,7 @@ const (
 	ValueMajorVersion                  string = "1"
 	ValueMinorVersion                  string = "0"
 	ValuePatchVersion                  string = "0"
+	ConnectorUnderline                 string = "_"
 
 	GCInterval        = 60 * time.Second
 	RealizeTimeout    = 2 * time.Minute
@@ -100,17 +102,8 @@ const (
 	IPPoolTypePublic  = "Public"
 	IPPoolTypePrivate = "Private"
 
-	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
-	T1SecurityPolicyFinalizerName  = "securitypolicy.nsx.vmware.com/finalizer"
-
-	SecurityPolicyFinalizerName      = "securitypolicy.crd.nsx.vmware.com/finalizer"
-	NetworkPolicyFinalizerName       = "networkpolicy.crd.nsx.vmware.com/finalizer"
-	StaticRouteFinalizerName         = "staticroute.crd.nsx.vmware.com/finalizer"
-	SubnetFinalizerName              = "subnet.crd.nsx.vmware.com/finalizer"
-	SubnetSetFinalizerName           = "subnetset.crd.nsx.vmware.com/finalizer"
-	SubnetPortFinalizerName          = "subnetport.crd.nsx.vmware.com/finalizer"
-	NetworkInfoFinalizerName         = "networkinfo.crd.nsx.vmware.com/finalizer"
-	PodFinalizerName                 = "pod.crd.nsx.vmware.com/finalizer"
+	NSXServiceAccountFinalizerName   = "nsxserviceaccount.nsx.vmware.com/finalizer"
+	T1SecurityPolicyFinalizerName    = "securitypolicy.nsx.vmware.com/finalizer"
 	IPPoolFinalizerName              = "ippool.crd.nsx.vmware.com/finalizer"
 	IPAddressAllocationFinalizerName = "ipaddressallocation.crd.nsx.vmware.com/finalizer"
 
@@ -119,20 +112,21 @@ const (
 	IndexKeyNodeName            = "IndexKeyNodeName"
 	GCValidationInterval uint16 = 720
 
-	RuleSuffixIngressAllow  = "ingress-allow"
-	RuleSuffixEgressAllow   = "egress-allow"
-	RuleSuffixIngressDrop   = "ingress-isolation"
-	RuleSuffixEgressDrop    = "egress-isolation"
-	RuleSuffixIngressReject = "ingress-reject"
-	RuleSuffixEgressReject  = "egress-reject"
-	DefaultProject          = "default"
-	SecurityPolicyPrefix    = "sp"
-	NetworkPolicyPrefix     = "np"
-	TargetGroupSuffix       = "scope"
-	SrcGroupSuffix          = "src"
-	DstGroupSuffix          = "dst"
-	IpSetGroupSuffix        = "ipset"
-	ShareSuffix             = "share"
+	RuleIngress            = "ingress"
+	RuleEgress             = "egress"
+	RuleActionAllow        = "allow"
+	RuleActionDrop         = "isolation"
+	RuleActionReject       = "reject"
+	RuleAnyPorts           = "all"
+	DefaultProject         = "default"
+	DefaultVpcAttachmentId = "default"
+	SecurityPolicyPrefix   = "sp"
+	NetworkPolicyPrefix    = "np"
+	TargetGroupSuffix      = "scope"
+	SrcGroupSuffix         = "src"
+	DstGroupSuffix         = "dst"
+	IpSetGroupSuffix       = "ipset"
+	ShareSuffix            = "share"
 )
 
 var (
@@ -158,6 +152,7 @@ var (
 	ResourceTypeSubnetPort                   = "VpcSubnetPort"
 	ResourceTypeVirtualMachine               = "VirtualMachine"
 	ResourceTypeLBService                    = "LBService"
+	ResourceTypeVpcAttachment                = "VpcAttachment"
 	ResourceTypeShare                        = "Share"
 	ResourceTypeSharedResource               = "SharedResource"
 	ResourceTypeChildSharedResource          = "ChildSharedResource"
@@ -165,6 +160,7 @@ var (
 	ResourceTypeChildRule                    = "ChildRule"
 	ResourceTypeChildGroup                   = "ChildGroup"
 	ResourceTypeChildSecurityPolicy          = "ChildSecurityPolicy"
+	ResourceTypeChildVpcAttachment           = "ChildVpcAttachment"
 	ResourceTypeChildResourceReference       = "ChildResourceReference"
 	ResourceTypeTlsCertificate               = "TlsCertificate"
 	ResourceTypeLBHttpProfile                = "LBHttpProfile"
@@ -174,6 +170,8 @@ var (
 	ResourceTypeLBSourceIpPersistenceProfile = "LBSourceIpPersistenceProfile"
 	ResourceTypeLBHttpMonitorProfile         = "LBHttpMonitorProfile"
 	ResourceTypeLBTcpMonitorProfile          = "LBTcpMonitorProfile"
+	ResourceTypeLBVirtualServer              = "LBVirtualServer"
+	ResourceTypeLBPool                       = "LBPool"
 
 	// ResourceTypeClusterControlPlane is used by NSXServiceAccountController
 	ResourceTypeClusterControlPlane = "clustercontrolplane"
