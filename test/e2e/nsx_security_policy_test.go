@@ -51,6 +51,7 @@ func TestSecurityPolicy(t *testing.T) {
 		RunSubtest(t, "testSecurityPolicyVPCToFieldEgress", func(t *testing.T) { testSecurityPolicyVPCToFieldEgress(t) })
 		RunSubtest(t, "testSecurityPolicyNamedPortWithoutPod", func(t *testing.T) { testSecurityPolicyNamedPortWithoutPod(t) })
 		RunSubtest(t, "testSecurityPolicyNamedPorWithPod", func(t *testing.T) { testSecurityPolicyNamedPorWithPod(t) })
+		RunSubtest(t, "testSecurityPolicyNativeInventoryGroup", func(t *testing.T) { testSecurityPolicyNativeInventoryGroup(t) })
 		RunSubtest(t, "testNetworkPolicyMultipleIn", func(t *testing.T) { testNetworkPolicyMultipleIn(t) })
 	})
 
@@ -579,4 +580,71 @@ func testNetworkPolicyMultipleIn(t *testing.T) {
 	require.True(t, checkTrafficByCurl(ns, frontend, frontend, iPs.ipv4.String(), podPort, true), "Traffic from frontend should work after delete")
 	require.True(t, checkTrafficByCurl(ns, backend, backend, iPs.ipv4.String(), podPort, true), "Traffic from backend should work after delete")
 	require.True(t, checkTrafficByCurl(ns, db, db, iPs.ipv4.String(), podPort, true), "Traffic from db should work after delete")
+}
+
+// testSecurityPolicyNativeInventoryGroup verifies SecurityPolicy when native inventory-based groups
+// (using member_type: Namespace and member_type: VirtualMachine) are generated.
+func testSecurityPolicyNativeInventoryGroup(t *testing.T) {
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
+	defer deadlineCancel()
+
+	ns := NsSecurityPolicy
+	securityPolicyName := "native-inv-group-policy-1"
+	ruleAllow := "sp_native_inv_allow"
+	ruleDrop := "sp_native_inv_drop"
+
+	podsPath, _ := filepath.Abs("./manifest/testSecurityPolicy/native-inventory-group-pods.yaml")
+	policyPath, _ := filepath.Abs("./manifest/testSecurityPolicy/native-inventory-group-policy.yaml")
+
+	require.NoError(t, applyYAML(podsPath, ns))
+	defer deleteYAML(podsPath, ns)
+
+	srvIP, err := testData.podWaitForIPs(defaultTimeout, "native-inv-srv", ns)
+	require.NoError(t, err, "wait for native-inv-srv IP")
+	_, err = testData.podWaitForIPs(defaultTimeout, "native-inv-client-allow", ns)
+	require.NoError(t, err, "wait for native-inv-client-allow IP")
+	_, err = testData.podWaitForIPs(defaultTimeout, "native-inv-client-deny", ns)
+	require.NoError(t, err, "wait for native-inv-client-deny IP")
+
+	// Ensure HTTP endpoint is ready before checking baseline reachability
+	require.NoError(t, waitForHTTPEndpointReady(ns, "native-inv-srv", "native-inv-srv", srvIP.ipv4.String(), podPort, defaultTimeout), "native-inv-srv http endpoint should be ready")
+
+	require.True(t, checkTrafficByCurl(ns, "native-inv-client-allow", "native-inv-client-allow", srvIP.ipv4.String(), podPort, true), "allow client -> server before policy")
+	require.True(t, checkTrafficByCurl(ns, "native-inv-client-deny", "native-inv-client-deny", srvIP.ipv4.String(), podPort, true), "deny client -> server before policy")
+
+	require.NoError(t, applyYAML(policyPath, ns))
+	defer deleteYAML(policyPath, ns)
+
+	assureSecurityPolicyReady(t, ns, securityPolicyName)
+
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, true))
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleAllow, true))
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleDrop, true))
+
+	// Verify NSX Group existence for this namespace
+	groupResults, err := testData.queryResource(common.ResourceTypeGroup, []string{common.TagScopeNamespace, ns})
+	if err == nil {
+		log.Info("Queried NSX Groups for native inventory policy", "count", len(groupResults.Results))
+	}
+
+	require.True(t, checkTrafficByCurl(ns, "native-inv-client-allow", "native-inv-client-allow", srvIP.ipv4.String(), podPort, true), "allow client -> server with policy")
+	require.True(t, checkTrafficByCurl(ns, "native-inv-client-deny", "native-inv-client-deny", srvIP.ipv4.String(), podPort, false), "deny client -> server blocked with policy")
+
+	_ = deleteYAML(policyPath, ns)
+	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		_, err = testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(ctx, securityPolicyName, v1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return true, nil
+			}
+			return false, err
+		}
+		return false, nil
+	})
+	require.NoError(t, err)
+
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, false))
+
+	require.True(t, checkTrafficByCurl(ns, "native-inv-client-allow", "native-inv-client-allow", srvIP.ipv4.String(), podPort, true), "allow client -> server after delete")
+	require.True(t, checkTrafficByCurl(ns, "native-inv-client-deny", "native-inv-client-deny", srvIP.ipv4.String(), podPort, true), "deny client -> server after delete")
 }
