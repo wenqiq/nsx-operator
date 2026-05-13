@@ -1,6 +1,8 @@
 package subnetipreservation
 
 import (
+	"strings"
+
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -10,13 +12,38 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
+// NSX DynamicIpAddressReservation IP address type values.
+// The CRD uses "IPV4IPV6" (no underscore) while NSX uses "IPV4_IPV6" (with underscore).
+const (
+	nsxIPAddressTypeIPv4     = "IPV4"
+	nsxIPAddressTypeIPv6     = "IPV6"
+	nsxIPAddressTypeIPv4IPv6 = "IPV4_IPV6"
+)
+
+// ipAddressTypeToNSX maps an IPAddressType to the NSX DynamicIpAddressReservation IpAddressType.
+// It accepts both the current mixed-case CRD enum values ("IPv4"/"IPv6"/"IPv4IPv6") and the
+// legacy all-caps values ("IPV4"/"IPV6"/"IPV4IPV6") that may be stored in older Subnet CRs.
+// The CRD uses "IPV4IPV6" (no underscore) while NSX uses "IPV4_IPV6" (with underscore).
+func ipAddressTypeToNSX(ipAddressType v1alpha1.IPAddressType) string {
+	switch strings.ToUpper(string(ipAddressType)) {
+	case "IPV6":
+		return nsxIPAddressTypeIPv6
+	case "IPV4IPV6":
+		return nsxIPAddressTypeIPv4IPv6
+	default:
+		return nsxIPAddressTypeIPv4
+	}
+}
+
 func (s *IPReservationService) buildDynamicIPReservation(ipReservation *v1alpha1.SubnetIPReservation, subnetPath string) *model.DynamicIpAddressReservation {
 	tags := util.BuildBasicTags(getCluster(s), ipReservation, "")
+	ipAddressType := ipAddressTypeToNSX(ipReservation.Spec.IPAddressType)
 	nsxIPReservation := &model.DynamicIpAddressReservation{
-		NumberOfIps: common.Int64(int64(ipReservation.Spec.NumberOfIPs)),
-		Tags:        tags,
-		Id:          common.String(s.buildIPReservationID(ipReservation, subnetPath)),
-		DisplayName: common.String(ipReservation.Name),
+		NumberOfIps:   common.Int64(int64(ipReservation.Spec.NumberOfIPs)),
+		Tags:          tags,
+		Id:            common.String(s.buildIPReservationID(ipReservation, subnetPath)),
+		DisplayName:   common.String(ipReservation.Name),
+		IpAddressType: &ipAddressType,
 	}
 	return nsxIPReservation
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -239,6 +240,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return common.ResultNormal, nil
 	}
 
+	// For dynamic reservations (numberOfIPs), validate that the requested IP address family is
+	// supported by the parent Subnet.
+	if ipReservationCR.Spec.NumberOfIPs > 0 {
+		if err := validateIPAddressTypeCompatibility(subnetCR.Spec.IPAddressType, ipReservationCR.Spec.IPAddressType); err != nil {
+			r.StatusUpdater.UpdateFail(ctx, ipReservationCR, err, err.Error(), setReadyStatusFalse)
+			return common.ResultNormal, nil
+		}
+	}
+
 	nsxSubnet, err := r.SubnetService.GetSubnetByCR(subnetCR)
 	if err != nil {
 		log.Error(err, "failed to get NSX Subnet", "Namespace", subnetCR.Namespace, "Subnet", subnetCR.Name)
@@ -299,6 +309,38 @@ func (r *Reconciler) validateSubnet(ctx context.Context, ns, name string) (*v1al
 		}
 	}
 	return subnetCR, nil
+}
+
+// normalizeIPAddressType converts any valid IPAddressType value to its canonical Go-constant form.
+// It accepts both the current mixed-case CRD enum values ("IPv4"/"IPv6"/"IPv4IPv6") and the
+// legacy all-caps values ("IPV4"/"IPV6"/"IPV4IPV6") that may be stored in older Subnet CRs.
+// An empty string defaults to IPv4.
+func normalizeIPAddressType(t v1alpha1.IPAddressType) v1alpha1.IPAddressType {
+	switch strings.ToUpper(string(t)) {
+	case "IPV6":
+		return v1alpha1.IPAddressTypeIPv6
+	case "IPV4IPV6":
+		return v1alpha1.IPAddressTypeIPv4IPv6
+	default:
+		return v1alpha1.IPAddressTypeIPv4
+	}
+}
+
+// validateIPAddressTypeCompatibility checks that the SubnetIPReservation's IPAddressType is
+// compatible with the parent Subnet's IPAddressType. This validation only applies to dynamic
+// reservations (numberOfIPs mode); static reservations (reservedIPs mode) specify IPs directly.
+// Both all-caps legacy values and mixed-case CRD enum values are accepted.
+func validateIPAddressTypeCompatibility(subnetIPAddressType, reservationIPAddressType v1alpha1.IPAddressType) error {
+	normalizedSubnet := normalizeIPAddressType(subnetIPAddressType)
+	normalizedReservation := normalizeIPAddressType(reservationIPAddressType)
+	// A dual-stack Subnet supports all reservation IP families.
+	if normalizedSubnet == v1alpha1.IPAddressTypeIPv4IPv6 {
+		return nil
+	}
+	if normalizedSubnet != normalizedReservation {
+		return fmt.Errorf("SubnetIPReservation IPAddressType %q is incompatible with Subnet IPAddressType %q", reservationIPAddressType, subnetIPAddressType)
+	}
+	return nil
 }
 
 func setReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {
