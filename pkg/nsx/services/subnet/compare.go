@@ -18,8 +18,8 @@ func (subnet *Subnet) Key() string {
 }
 
 func (subnet *Subnet) Value() data.DataValue {
-	// IPv4SubnetSize/AccessMode/IPAddresses are immutable field,
-	// Changes of tags and subnetDHCPConfig are considered as changed.
+	// IPv4SubnetSize/AccessMode/IPAddresses/IpAddressType/Ipv6PrefixLength are immutable fields.
+	// Changes of tags, subnetDHCPConfig, and subnetDhcpv6Config are considered as changed.
 	// TODO AccessMode may also need to be compared in future.
 	var advancedConfig *model.SubnetAdvancedConfig
 	if subnet.AdvancedConfig != nil {
@@ -45,10 +45,25 @@ func (subnet *Subnet) Value() data.DataValue {
 			DhcpServerAdditionalConfig: dhcpServerAdditionalConfig,
 		}
 	}
+	var subnetDhcpv6Config *model.SubnetDhcpv6Config
+	// Only compare Mode and Dhcpv6ServerAdditionalConfig from SubnetDhcpv6Config
+	if subnet.SubnetDhcpv6Config != nil {
+		var dhcpv6ServerAdditionalConfig *model.DhcpV6ServerAdditionalConfig
+		if subnet.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig != nil {
+			dhcpv6ServerAdditionalConfig = &model.DhcpV6ServerAdditionalConfig{
+				ReservedIpRanges: subnet.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig.ReservedIpRanges,
+			}
+		}
+		subnetDhcpv6Config = &model.SubnetDhcpv6Config{
+			Mode:                         subnet.SubnetDhcpv6Config.Mode,
+			Dhcpv6ServerAdditionalConfig: dhcpv6ServerAdditionalConfig,
+		}
+	}
 	s := &Subnet{
-		Tags:             subnet.Tags,
-		SubnetDhcpConfig: subnetDhcpConfig,
-		AdvancedConfig:   advancedConfig,
+		Tags:               subnet.Tags,
+		SubnetDhcpConfig:   subnetDhcpConfig,
+		SubnetDhcpv6Config: subnetDhcpv6Config,
+		AdvancedConfig:     advancedConfig,
 	}
 	dataValue, _ := (*model.VpcSubnet)(s).GetDataValue__()
 	return dataValue

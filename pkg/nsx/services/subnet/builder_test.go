@@ -553,6 +553,209 @@ func TestBuildSubnetWithCustomDHCPServerAddresses(t *testing.T) {
 	assert.Equal(t, false, *nsxSubnet4.AdvancedConfig.StaticIpAllocation.Enabled)
 }
 
+// ─── IPv6 / dual-stack builder tests ────────────────────────────────────────
+
+func TestSubnetIPAddressTypeToNSX(t *testing.T) {
+	tests := []struct {
+		input    v1alpha1.IPAddressType
+		expected string
+	}{
+		// empty → empty (let NSX default to IPV4)
+		{"", ""},
+		// current mixed-case CRD enum values
+		{"IPv4", "IPV4"},
+		{"IPv6", "IPV6"},
+		{"IPv4IPv6", "IPV4_IPV6"},
+		// legacy all-caps values stored by older CRDs
+		{"IPV4", "IPV4"},
+		{"IPV6", "IPV6"},
+		{"IPV4IPV6", "IPV4_IPV6"},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.input), func(t *testing.T) {
+			assert.Equal(t, tt.expected, subnetIPAddressTypeToNSX(tt.input))
+		})
+	}
+}
+
+func newIPv6BuildSubnetService(k8sClient client.Client) *SubnetService {
+	return &SubnetService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{Cluster: "k8scl-one:test"},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+}
+
+func TestBuildSubnetWithIPv6(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) { return false, nil })
+	defer patches.Reset()
+
+	service := newIPv6BuildSubnetService(k8sClient)
+	tags := []model.Tag{{Scope: common.String("nsx-op/namespace"), Tag: common.String("ns-1")}}
+
+	subnetCR := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{Name: "subnet-ipv6", Namespace: "ns-1"},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType:    "IPv6",
+			IPv6PrefixLength: 64,
+			AccessMode:       v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: common.Bool(true)},
+			},
+		},
+	}
+
+	nsxSubnet, err := service.buildSubnet(subnetCR, tags, []string{})
+	assert.Nil(t, err)
+	assert.NotNil(t, nsxSubnet.IpAddressType)
+	assert.Equal(t, "IPV6", *nsxSubnet.IpAddressType)
+	assert.NotNil(t, nsxSubnet.Ipv6PrefixLength)
+	assert.Equal(t, int64(64), *nsxSubnet.Ipv6PrefixLength)
+	assert.Nil(t, nsxSubnet.Ipv4SubnetSize)
+	assert.Nil(t, nsxSubnet.SubnetDhcpv6Config)
+}
+
+func TestBuildSubnetWithDualStack(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) { return false, nil })
+	defer patches.Reset()
+
+	service := newIPv6BuildSubnetService(k8sClient)
+	tags := []model.Tag{{Scope: common.String("nsx-op/namespace"), Tag: common.String("ns-1")}}
+
+	subnetCR := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{Name: "subnet-dual", Namespace: "ns-1"},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType:    "IPv4IPv6",
+			IPv4SubnetSize:   64,
+			IPv6PrefixLength: 64,
+			AccessMode:       v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: common.Bool(true)},
+			},
+		},
+	}
+
+	nsxSubnet, err := service.buildSubnet(subnetCR, tags, []string{})
+	assert.Nil(t, err)
+	assert.NotNil(t, nsxSubnet.IpAddressType)
+	assert.Equal(t, "IPV4_IPV6", *nsxSubnet.IpAddressType)
+	assert.NotNil(t, nsxSubnet.Ipv4SubnetSize)
+	assert.Equal(t, int64(64), *nsxSubnet.Ipv4SubnetSize)
+	assert.NotNil(t, nsxSubnet.Ipv6PrefixLength)
+	assert.Equal(t, int64(64), *nsxSubnet.Ipv6PrefixLength)
+}
+
+func TestBuildSubnetIPv4DefaultAndExplicit(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) { return false, nil })
+	defer patches.Reset()
+
+	service := newIPv6BuildSubnetService(k8sClient)
+	tags := []model.Tag{{Scope: common.String("nsx-op/namespace"), Tag: common.String("ns-1")}}
+
+	// When IPAddressType is empty, IpAddressType should not be set (let NSX default to IPV4).
+	subnetCR := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{Name: "subnet-ipv4-default", Namespace: "ns-1"},
+		Spec: v1alpha1.SubnetSpec{
+			IPv4SubnetSize: 32,
+			AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: common.Bool(true)},
+			},
+		},
+	}
+
+	nsxSubnet, err := service.buildSubnet(subnetCR, tags, []string{})
+	assert.Nil(t, err)
+	assert.Nil(t, nsxSubnet.IpAddressType, "IpAddressType should be nil when not specified")
+	assert.Nil(t, nsxSubnet.Ipv6PrefixLength)
+
+	// Explicit "IPv4" should be passed to NSX.
+	subnetCR.Spec.IPAddressType = "IPv4"
+	nsxSubnet, err = service.buildSubnet(subnetCR, tags, []string{})
+	assert.Nil(t, err)
+	assert.NotNil(t, nsxSubnet.IpAddressType)
+	assert.Equal(t, "IPV4", *nsxSubnet.IpAddressType)
+}
+
+func TestBuildSubnetWithDHCPv6Config(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) { return false, nil })
+	defer patches.Reset()
+
+	service := newIPv6BuildSubnetService(k8sClient)
+	tags := []model.Tag{{Scope: common.String("nsx-op/namespace"), Tag: common.String("ns-1")}}
+
+	subnetCR := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{Name: "subnet-dhcpv6", Namespace: "ns-1"},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType:    "IPv6",
+			IPv6PrefixLength: 64,
+			AccessMode:       v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: common.Bool(false)},
+			},
+			SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
+				Mode: v1alpha1.DHCPv6ConfigModeServer,
+				DHCPv6ServerAdditionalConfig: v1alpha1.DHCPv6ServerAdditionalConfig{
+					ReservedIPRanges: []string{"2001:db8::10-2001:db8::20"},
+				},
+			},
+		},
+	}
+
+	nsxSubnet, err := service.buildSubnet(subnetCR, tags, []string{})
+	assert.Nil(t, err)
+	assert.NotNil(t, nsxSubnet.IpAddressType)
+	assert.Equal(t, "IPV6", *nsxSubnet.IpAddressType)
+	assert.NotNil(t, nsxSubnet.SubnetDhcpv6Config)
+	assert.NotNil(t, nsxSubnet.SubnetDhcpv6Config.Mode)
+	assert.Equal(t, "DHCP_SERVER", *nsxSubnet.SubnetDhcpv6Config.Mode)
+	assert.NotNil(t, nsxSubnet.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig)
+	assert.Equal(t, []string{"2001:db8::10-2001:db8::20"},
+		nsxSubnet.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig.ReservedIpRanges)
+
+	// No DHCPv6 mode → SubnetDhcpv6Config should be nil.
+	subnetCR.Spec.SubnetDHCPv6Config = v1alpha1.SubnetDHCPv6Config{}
+	nsxSubnet, err = service.buildSubnet(subnetCR, tags, []string{})
+	assert.Nil(t, err)
+	assert.Nil(t, nsxSubnet.SubnetDhcpv6Config)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 func TestBuildSubnetWithExceedTagsLimit(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mockClient.NewMockClient(mockCtl)

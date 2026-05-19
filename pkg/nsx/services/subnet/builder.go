@@ -2,6 +2,7 @@ package subnet
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,6 +22,24 @@ var (
 	String = common.String
 	Int64  = common.Int64
 )
+
+// subnetIPAddressTypeToNSX maps a CRD IPAddressType value to the NSX VpcSubnet IpAddressType string.
+// It normalises the input using strings.ToUpper so that both current mixed-case CRD enum values
+// ("IPv4"/"IPv6"/"IPv4IPv6") and legacy all-caps values ("IPV4"/"IPV6"/"IPV4IPV6") are handled.
+// Returns an empty string for an empty / unset input so that NSX falls back to its own default (IPV4).
+func subnetIPAddressTypeToNSX(ipAddressType v1alpha1.IPAddressType) string {
+	if ipAddressType == "" {
+		return ""
+	}
+	switch strings.ToUpper(string(ipAddressType)) {
+	case "IPV6":
+		return "IPV6"
+	case "IPV4IPV6":
+		return "IPV4_IPV6"
+	default: // "IPV4"
+		return "IPV4"
+	}
+}
 
 func getCluster(service *SubnetService) string {
 	return service.NSXConfig.Cluster
@@ -144,6 +163,14 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		if o.Spec.IPv4SubnetSize > 0 {
 			nsxSubnet.Ipv4SubnetSize = Int64(int64(o.Spec.IPv4SubnetSize))
 		}
+		// Support IPv6 prefix length
+		if o.Spec.IPv6PrefixLength > 0 {
+			nsxSubnet.Ipv6PrefixLength = Int64(int64(o.Spec.IPv6PrefixLength))
+		}
+		// Support IP address type (IPv4/IPv6/dual-stack)
+		if ipAddrType := subnetIPAddressTypeToNSX(o.Spec.IPAddressType); ipAddrType != "" {
+			nsxSubnet.IpAddressType = String(ipAddrType)
+		}
 		// Support custom gateway addresses when provided
 		if len(o.Spec.AdvancedConfig.GatewayAddresses) > 0 {
 			nsxSubnet.AdvancedConfig.GatewayAddresses = o.Spec.AdvancedConfig.GatewayAddresses
@@ -152,6 +179,15 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		if !staticIpAllocation && string(o.Spec.SubnetDHCPConfig.Mode) == v1alpha1.DHCPConfigModeServer && len(o.Spec.AdvancedConfig.DHCPServerAddresses) > 0 {
 			nsxSubnet.AdvancedConfig.DhcpServerAddresses = o.Spec.AdvancedConfig.DHCPServerAddresses
 		}
+		// Support DHCPv6 configuration
+		dhcpv6Mode := string(o.Spec.SubnetDHCPv6Config.Mode)
+		var dhcpv6ServerAdditionalConfig *model.DhcpV6ServerAdditionalConfig
+		if len(o.Spec.SubnetDHCPv6Config.DHCPv6ServerAdditionalConfig.ReservedIPRanges) > 0 {
+			dhcpv6ServerAdditionalConfig = &model.DhcpV6ServerAdditionalConfig{
+				ReservedIpRanges: o.Spec.SubnetDHCPv6Config.DHCPv6ServerAdditionalConfig.ReservedIPRanges,
+			}
+		}
+		nsxSubnet.SubnetDhcpv6Config = service.buildSubnetDHCPv6Config(dhcpv6Mode, dhcpv6ServerAdditionalConfig)
 	case *v1alpha1.SubnetSet:
 		// The index is a random string with the length of 8 chars. It is the first 8 chars of the hash
 		// value on a random UUID string.
@@ -189,6 +225,19 @@ func (service *SubnetService) buildSubnetDHCPConfig(mode string, dhcpServerAddit
 		Mode:                       &nsxMode,
 	}
 	return subnetDhcpConfig
+}
+
+// buildSubnetDHCPv6Config builds the NSX SubnetDhcpv6Config from the CRD DHCPv6 mode and additional config.
+// Returns nil when mode is empty (not configured).
+func (service *SubnetService) buildSubnetDHCPv6Config(mode string, dhcpv6ServerAdditionalConfig *model.DhcpV6ServerAdditionalConfig) *model.SubnetDhcpv6Config {
+	if mode == "" {
+		return nil
+	}
+	nsxMode := nsxutil.ParseDHCPMode(mode)
+	return &model.SubnetDhcpv6Config{
+		Mode:                         &nsxMode,
+		Dhcpv6ServerAdditionalConfig: dhcpv6ServerAdditionalConfig,
+	}
 }
 
 func (service *SubnetService) buildBasicTags(obj client.Object) []model.Tag {

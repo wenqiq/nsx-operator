@@ -605,6 +605,23 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 		subnetCR.Spec.IPv4SubnetSize = int(*nsxSubnet.Ipv4SubnetSize)
 	}
 
+	// Map IPv6PrefixLength
+	if nsxSubnet.Ipv6PrefixLength != nil {
+		subnetCR.Spec.IPv6PrefixLength = int(*nsxSubnet.Ipv6PrefixLength)
+	}
+
+	// Map IpAddressType: NSX uses "IPV4"/"IPV6"/"IPV4_IPV6"; CRD uses "IPv4"/"IPv6"/"IPv4IPv6".
+	if nsxSubnet.IpAddressType != nil {
+		switch *nsxSubnet.IpAddressType {
+		case "IPV6":
+			subnetCR.Spec.IPAddressType = v1alpha1.IPAddressTypeIPv6
+		case "IPV4_IPV6":
+			subnetCR.Spec.IPAddressType = v1alpha1.IPAddressTypeIPv4IPv6
+		default: // "IPV4" or unrecognised
+			subnetCR.Spec.IPAddressType = v1alpha1.IPAddressTypeIPv4
+		}
+	}
+
 	// Map IPAddresses
 	subnetCR.Spec.IPAddresses = nsxSubnet.IpAddresses
 
@@ -626,6 +643,24 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 		}
 	} else {
 		subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
+	}
+
+	// Map SubnetDHCPv6Config
+	if nsxSubnet.SubnetDhcpv6Config != nil && nsxSubnet.SubnetDhcpv6Config.Mode != nil {
+		dhcpv6Mode := *nsxSubnet.SubnetDhcpv6Config.Mode
+		switch dhcpv6Mode {
+		case "DHCP_SERVER":
+			subnetCR.Spec.SubnetDHCPv6Config.Mode = v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServer)
+			if nsxSubnet.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig != nil &&
+				len(nsxSubnet.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig.ReservedIpRanges) > 0 {
+				subnetCR.Spec.SubnetDHCPv6Config.DHCPv6ServerAdditionalConfig.ReservedIPRanges =
+					nsxSubnet.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig.ReservedIpRanges
+			}
+		case "DHCP_RELAY":
+			subnetCR.Spec.SubnetDHCPv6Config.Mode = v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeRelay)
+		default:
+			subnetCR.Spec.SubnetDHCPv6Config.Mode = v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeDeactivated)
+		}
 	}
 
 	// Map VlanConnectionName from NSX Subnet
