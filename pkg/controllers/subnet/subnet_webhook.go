@@ -52,10 +52,10 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 		if !valid {
 			return admission.Denied(fmt.Sprintf("Subnet %s/%s has invalid size %d: %s", subnet.Namespace, subnet.Name, subnet.Spec.IPv4SubnetSize, msg))
 		}
-		if util.IsDualStackIPAddressType(subnet.Spec.IPAddressType) &&
+		if util.IPAddressTypeIncludesIPv6(subnet.Spec.IPAddressType) &&
 			subnet.Spec.AdvancedConfig.StaticIPAllocation.Enabled != nil &&
 			*subnet.Spec.AdvancedConfig.StaticIPAllocation.Enabled {
-			return admission.Denied(fmt.Sprintf("Subnet %s/%s: staticIPAllocation cannot be enabled for dual-stack (IPv4IPv6) subnets", subnet.Namespace, subnet.Name))
+			return admission.Denied(fmt.Sprintf("Subnet %s/%s: staticIPAllocation cannot be enabled for IPv6 subnets (IPv6-only or IPv4IPv6)", subnet.Namespace, subnet.Name))
 		}
 		// Shared Subnet can only be updated by NSX Operator
 		if (common.IsSharedSubnet(subnet)) && req.UserInfo.Username != NSXOperatorSA {

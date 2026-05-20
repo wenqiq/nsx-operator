@@ -218,6 +218,34 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			},
 		},
 	})
+	// IPv6-only subnet with staticIPAllocation explicitly enabled (not allowed by NSX)
+	reqIPv6StaticIP, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-10",
+			Name:      "subnet-ipv6",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPv6PrefixLength: 64,
+			IPAddressType:    v1alpha1.IPAddressTypeIPv6,
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: &enabled},
+			},
+		},
+	})
+	// Same with legacy all-caps ipAddressType value
+	reqIPv6StaticIPUpperCase, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-10",
+			Name:      "subnet-ipv6-upper",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPv6PrefixLength: 64,
+			IPAddressType:    "IPV6",
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: &enabled},
+			},
+		},
+	})
 
 	type testCase struct {
 		name            string
@@ -357,14 +385,28 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			name:            "CreateDualStackSubnet with staticIPAllocation enabled is denied",
 			operation:       admissionv1.Create,
 			object:          reqDualStackStaticIP,
-			want:            admission.Denied("Subnet ns-9/subnet-dualstack: staticIPAllocation cannot be enabled for dual-stack (IPv4IPv6) subnets"),
+			want:            admission.Denied("Subnet ns-9/subnet-dualstack: staticIPAllocation cannot be enabled for IPv6 subnets (IPv6-only or IPv4IPv6)"),
 			accessModeCheck: true,
 		},
 		{
 			name:            "CreateDualStackSubnet with legacy uppercase IPAddressType and staticIPAllocation enabled is denied",
 			operation:       admissionv1.Create,
 			object:          reqDualStackStaticIPUpperCase,
-			want:            admission.Denied("Subnet ns-9/subnet-dualstack-upper: staticIPAllocation cannot be enabled for dual-stack (IPv4IPv6) subnets"),
+			want:            admission.Denied("Subnet ns-9/subnet-dualstack-upper: staticIPAllocation cannot be enabled for IPv6 subnets (IPv6-only or IPv4IPv6)"),
+			accessModeCheck: true,
+		},
+		{
+			name:            "CreateIPv6Subnet with staticIPAllocation enabled is denied",
+			operation:       admissionv1.Create,
+			object:          reqIPv6StaticIP,
+			want:            admission.Denied("Subnet ns-10/subnet-ipv6: staticIPAllocation cannot be enabled for IPv6 subnets (IPv6-only or IPv4IPv6)"),
+			accessModeCheck: true,
+		},
+		{
+			name:            "CreateIPv6Subnet with legacy uppercase IPAddressType and staticIPAllocation enabled is denied",
+			operation:       admissionv1.Create,
+			object:          reqIPv6StaticIPUpperCase,
+			want:            admission.Denied("Subnet ns-10/subnet-ipv6-upper: staticIPAllocation cannot be enabled for IPv6 subnets (IPv6-only or IPv4IPv6)"),
 			accessModeCheck: true,
 		},
 		{
