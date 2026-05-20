@@ -173,11 +173,24 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 				updatedSubnet := *existingSubnet
 				updatedSubnet.Tags = nsxSubnet.Tags
 				updatedSubnet.SubnetDhcpConfig = nsxSubnet.SubnetDhcpConfig
-				// Only update gateway_addresses, dhcp_server_address, and connectivity_state from AdvancedConfig
+				// Only update connectivity_state, static_ip_allocation, gateway_addresses, and
+				// dhcp_server_addresses from AdvancedConfig.
+				// For gateway_addresses and dhcp_server_addresses: only override when the user has
+				// specified custom values in the spec (non-empty). Otherwise preserve what NSX has
+				// assigned (e.g. auto-allocated gateway address), because sending nil/empty would
+				// clear them and trigger NSX error 610713 (subnet size cannot be modified).
 				if nsxSubnet.AdvancedConfig != nil {
+					gatewayAddresses := nsxSubnet.AdvancedConfig.GatewayAddresses
+					if len(gatewayAddresses) == 0 && existingSubnet.AdvancedConfig != nil {
+						gatewayAddresses = existingSubnet.AdvancedConfig.GatewayAddresses
+					}
+					dhcpServerAddresses := nsxSubnet.AdvancedConfig.DhcpServerAddresses
+					if len(dhcpServerAddresses) == 0 && existingSubnet.AdvancedConfig != nil {
+						dhcpServerAddresses = existingSubnet.AdvancedConfig.DhcpServerAddresses
+					}
 					updatedSubnet.AdvancedConfig = &model.SubnetAdvancedConfig{
-						GatewayAddresses:    nsxSubnet.AdvancedConfig.GatewayAddresses,
-						DhcpServerAddresses: nsxSubnet.AdvancedConfig.DhcpServerAddresses,
+						GatewayAddresses:    gatewayAddresses,
+						DhcpServerAddresses: dhcpServerAddresses,
 						ConnectivityState:   nsxSubnet.AdvancedConfig.ConnectivityState,
 						StaticIpAllocation:  nsxSubnet.AdvancedConfig.StaticIpAllocation,
 					}

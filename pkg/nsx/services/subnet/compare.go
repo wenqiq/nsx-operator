@@ -23,11 +23,15 @@ func (subnet *Subnet) Value() data.DataValue {
 	// TODO AccessMode may also need to be compared in future.
 	var advancedConfig *model.SubnetAdvancedConfig
 	if subnet.AdvancedConfig != nil {
-		// Only compare gateway_addresses, dhcp_server_address, and connectivity_state from AdvancedConfig
+		// Only compare connectivity_state from AdvancedConfig.
+		// GatewayAddresses and DhcpServerAddresses are excluded:
+		// - NSX auto-assigns them after realization (e.g. gateway) — including them here
+		//   causes false-positive "changed" detections on every reconciliation loop, which
+		//   then clears the NSX-assigned values and triggers NSX error 610713.
+		// - User-specified custom values require ipAddresses to also be set (CRD constraint),
+		//   and ipAddresses is immutable, so these fields effectively can't be changed in-place.
 		advancedConfig = &model.SubnetAdvancedConfig{
-			GatewayAddresses:    subnet.AdvancedConfig.GatewayAddresses,
-			DhcpServerAddresses: subnet.AdvancedConfig.DhcpServerAddresses,
-			ConnectivityState:   subnet.AdvancedConfig.ConnectivityState,
+			ConnectivityState: subnet.AdvancedConfig.ConnectivityState,
 		}
 	}
 	var subnetDhcpConfig *model.SubnetDhcpConfig
