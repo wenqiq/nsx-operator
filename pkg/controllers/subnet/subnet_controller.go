@@ -178,7 +178,13 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	if subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled == nil {
-		subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = servicecommon.Bool(!util.CRSubnetDHCPEnabled(subnetCR))
+		// Dual-stack subnets (IPv4+IPv6) do not support static IP allocation in NSX.
+		// Default to false regardless of DHCP configuration to avoid NSX error 610742.
+		if util.IsDualStackIPAddressType(subnetCR.Spec.IPAddressType) {
+			subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = servicecommon.Bool(false)
+		} else {
+			subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = servicecommon.Bool(!util.CRSubnetDHCPEnabled(subnetCR))
+		}
 		specChanged = true
 	}
 

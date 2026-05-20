@@ -187,6 +187,38 @@ func TestSubnetValidator_Handle(t *testing.T) {
 		},
 	})
 
+	enabled := true
+	// Dual-stack subnet with staticIPAllocation explicitly enabled (not allowed by NSX)
+	reqDualStackStaticIP, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-9",
+			Name:      "subnet-dualstack",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPv4SubnetSize:   64,
+			IPv6PrefixLength: 64,
+			IPAddressType:    v1alpha1.IPAddressTypeIPv4IPv6,
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: &enabled},
+			},
+		},
+	})
+	// Same with legacy all-caps ipAddressType value
+	reqDualStackStaticIPUpperCase, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-9",
+			Name:      "subnet-dualstack-upper",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPv4SubnetSize:   64,
+			IPv6PrefixLength: 64,
+			IPAddressType:    "IPV4IPV6",
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: &enabled},
+			},
+		},
+	})
+
 	type testCase struct {
 		name            string
 		operation       admissionv1.Operation
@@ -319,6 +351,20 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			operation:       admissionv1.Create,
 			object:          req3,
 			want:            admission.Denied("Subnet ns-3/subnet-3: spec.accessMode L2Only is not supported"),
+			accessModeCheck: true,
+		},
+		{
+			name:            "CreateDualStackSubnet with staticIPAllocation enabled is denied",
+			operation:       admissionv1.Create,
+			object:          reqDualStackStaticIP,
+			want:            admission.Denied("Subnet ns-9/subnet-dualstack: staticIPAllocation cannot be enabled for dual-stack (IPv4IPv6) subnets"),
+			accessModeCheck: true,
+		},
+		{
+			name:            "CreateDualStackSubnet with legacy uppercase IPAddressType and staticIPAllocation enabled is denied",
+			operation:       admissionv1.Create,
+			object:          reqDualStackStaticIPUpperCase,
+			want:            admission.Denied("Subnet ns-9/subnet-dualstack-upper: staticIPAllocation cannot be enabled for dual-stack (IPv4IPv6) subnets"),
 			accessModeCheck: true,
 		},
 		{

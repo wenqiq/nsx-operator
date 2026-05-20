@@ -254,13 +254,21 @@ func GetCIDRRangesWithExcept(cidr string, excepts []string) ([]string, error) {
 }
 
 // IPAddressTypeIncludesIPv6 reports whether the given IPAddressType allocates IPv6 addresses
-// (i.e. IPv6-only or dual-stack).
+// (i.e. IPv6-only or dual-stack). The comparison is case-insensitive so that both the CRD
+// enum form ("IPv6"/"IPv4IPv6") and the legacy all-caps form ("IPV6"/"IPV4IPV6") are handled.
 func IPAddressTypeIncludesIPv6(ipType v1alpha1.IPAddressType) bool {
-	return ipType == v1alpha1.IPAddressTypeIPv6 || ipType == v1alpha1.IPAddressTypeIPv4IPv6
+	upper := strings.ToUpper(string(ipType))
+	return upper == "IPV6" || upper == "IPV4IPV6"
 }
 
 // IPAddressTypeIncludesIPv4 reports whether the given IPAddressType allocates IPv4 addresses
-// (i.e. IPv4-only or dual-stack).
+// (i.e. IPv4-only or dual-stack). The comparison is case-insensitive.
 func IPAddressTypeIncludesIPv4(ipType v1alpha1.IPAddressType) bool {
-	return ipType != v1alpha1.IPAddressTypeIPv6
+	return strings.ToUpper(string(ipType)) != "IPV6"
+}
+
+// IsDualStackIPAddressType reports whether the given IPAddressType is dual-stack (IPv4+IPv6).
+// The comparison is case-insensitive so that both "IPv4IPv6" and "IPV4IPV6" are recognised.
+func IsDualStackIPAddressType(ipType v1alpha1.IPAddressType) bool {
+	return strings.ToUpper(string(ipType)) == "IPV4IPV6"
 }

@@ -160,7 +160,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		} else if len(o.Status.NetworkAddresses) > 0 {
 			nsxSubnet.IpAddresses = o.Status.NetworkAddresses
 		}
-		if o.Spec.IPv4SubnetSize > 0 {
+		if o.Spec.IPv4SubnetSize > 0 && subnetIPAddressTypeToNSX(o.Spec.IPAddressType) != "IPV6" {
 			nsxSubnet.Ipv4SubnetSize = Int64(int64(o.Spec.IPv4SubnetSize))
 		}
 		// Support IPv6 prefix length

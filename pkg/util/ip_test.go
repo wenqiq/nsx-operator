@@ -512,6 +512,10 @@ func TestIPAddressTypeIncludesIPv4(t *testing.T) {
 	assert.True(t, IPAddressTypeIncludesIPv4(v1alpha1.IPAddressTypeIPv4))     // explicit IPv4
 	assert.True(t, IPAddressTypeIncludesIPv4(v1alpha1.IPAddressTypeIPv4IPv6)) // dual-stack
 	assert.False(t, IPAddressTypeIncludesIPv4(v1alpha1.IPAddressTypeIPv6))    // IPv6-only
+	// legacy all-caps forms stored in older clusters
+	assert.True(t, IPAddressTypeIncludesIPv4("IPV4"))
+	assert.True(t, IPAddressTypeIncludesIPv4("IPV4IPV6"))
+	assert.False(t, IPAddressTypeIncludesIPv4("IPV6"))
 }
 
 func TestIPAddressTypeIncludesIPv6(t *testing.T) {
@@ -519,4 +523,17 @@ func TestIPAddressTypeIncludesIPv6(t *testing.T) {
 	assert.False(t, IPAddressTypeIncludesIPv6(v1alpha1.IPAddressTypeIPv4))    // IPv4-only
 	assert.True(t, IPAddressTypeIncludesIPv6(v1alpha1.IPAddressTypeIPv4IPv6)) // dual-stack
 	assert.True(t, IPAddressTypeIncludesIPv6(v1alpha1.IPAddressTypeIPv6))     // IPv6-only
+	// legacy all-caps forms stored in older clusters
+	assert.False(t, IPAddressTypeIncludesIPv6("IPV4"))
+	assert.True(t, IPAddressTypeIncludesIPv6("IPV4IPV6"))
+	assert.True(t, IPAddressTypeIncludesIPv6("IPV6"))
+}
+
+func TestIsDualStackIPAddressType(t *testing.T) {
+	assert.False(t, IsDualStackIPAddressType(""))
+	assert.False(t, IsDualStackIPAddressType(v1alpha1.IPAddressTypeIPv4))
+	assert.False(t, IsDualStackIPAddressType(v1alpha1.IPAddressTypeIPv6))
+	assert.True(t, IsDualStackIPAddressType(v1alpha1.IPAddressTypeIPv4IPv6))
+	// legacy all-caps form
+	assert.True(t, IsDualStackIPAddressType("IPV4IPV6"))
 }
