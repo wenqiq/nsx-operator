@@ -37,22 +37,60 @@ func TestSecurityPolicy(t *testing.T) {
 
 	// Clean up shared namespaces when all subtests complete
 	t.Cleanup(func() {
-		CleanupVCNamespaces(NsSecurityPolicy, NsSecurityPolicyNamedPortClient, NsSecurityPolicyNamedPortWeb, NsIPv6PolicyVC)
+		CleanupVCNamespaces(
+			NsSecurityPolicyBasic,
+			NsSecurityPolicyAddDeleteRule,
+			NsSecurityPolicyMatchExpr,
+			NsSecurityPolicyVPCFromIngress,
+			NsSecurityPolicyVPCToEgress,
+			NsSecurityPolicyNPWithoutPodWeb,
+			NsSecurityPolicyNPWithPodClient,
+			NsSecurityPolicyNPWithPodWeb,
+			NsSecurityPolicyNativeInv,
+			NsNetworkPolicyMultipleIn,
+			NsIPv6PolicyVC,
+		)
 	})
 	StartParallel(t)
 
-	// SequentialTests: All subtests share NsSecurityPolicy namespace and some share "isolate-policy-1"
-	// so they MUST run sequentially to avoid conflicts
-	RunSubtest(t, "SequentialTests", func(t *testing.T) {
-		RunSubtest(t, "testSecurityPolicyBasicTraffic", func(t *testing.T) { testSecurityPolicyBasicTraffic(t) })
-		RunSubtest(t, "testSecurityPolicyAddDeleteRule", func(t *testing.T) { testSecurityPolicyAddDeleteRule(t) })
-		RunSubtest(t, "testSecurityPolicyMatchExpression", func(t *testing.T) { testSecurityPolicyMatchExpression(t) })
-		RunSubtest(t, "testSecurityPolicyVPCFromFieldIngress", func(t *testing.T) { testSecurityPolicyVPCFromFieldIngress(t) })
-		RunSubtest(t, "testSecurityPolicyVPCToFieldEgress", func(t *testing.T) { testSecurityPolicyVPCToFieldEgress(t) })
-		RunSubtest(t, "testSecurityPolicyNamedPortWithoutPod", func(t *testing.T) { testSecurityPolicyNamedPortWithoutPod(t) })
-		RunSubtest(t, "testSecurityPolicyNamedPorWithPod", func(t *testing.T) { testSecurityPolicyNamedPorWithPod(t) })
-		RunSubtest(t, "testSecurityPolicyNativeInventoryGroup", func(t *testing.T) { testSecurityPolicyNativeInventoryGroup(t) })
-		RunSubtest(t, "testNetworkPolicyMultipleIn", func(t *testing.T) { testNetworkPolicyMultipleIn(t) })
+	// ParallelTests: Subtests use independent VC namespaces and can run in parallel
+	RunSubtest(t, "ParallelTests", func(t *testing.T) {
+		RunSubtest(t, "testSecurityPolicyBasicTraffic", func(t *testing.T) {
+			t.Parallel()
+			testSecurityPolicyBasicTraffic(t)
+		})
+		RunSubtest(t, "testSecurityPolicyAddDeleteRule", func(t *testing.T) {
+			t.Parallel()
+			testSecurityPolicyAddDeleteRule(t)
+		})
+		RunSubtest(t, "testSecurityPolicyMatchExpression", func(t *testing.T) {
+			t.Parallel()
+			testSecurityPolicyMatchExpression(t)
+		})
+		RunSubtest(t, "testSecurityPolicyVPCFromFieldIngress", func(t *testing.T) {
+			t.Parallel()
+			testSecurityPolicyVPCFromFieldIngress(t)
+		})
+		RunSubtest(t, "testSecurityPolicyVPCToFieldEgress", func(t *testing.T) {
+			t.Parallel()
+			testSecurityPolicyVPCToFieldEgress(t)
+		})
+		RunSubtest(t, "testSecurityPolicyNamedPortWithoutPod", func(t *testing.T) {
+			t.Parallel()
+			testSecurityPolicyNamedPortWithoutPod(t)
+		})
+		RunSubtest(t, "testSecurityPolicyNamedPorWithPod", func(t *testing.T) {
+			t.Parallel()
+			testSecurityPolicyNamedPorWithPod(t)
+		})
+		RunSubtest(t, "testSecurityPolicyNativeInventoryGroup", func(t *testing.T) {
+			t.Parallel()
+			testSecurityPolicyNativeInventoryGroup(t)
+		})
+		RunSubtest(t, "testNetworkPolicyMultipleIn", func(t *testing.T) {
+			t.Parallel()
+			testNetworkPolicyMultipleIn(t)
+		})
 	})
 
 	// IPv6-only tests: run only when cluster has IPv6 Pod CIDR configured.
@@ -71,14 +109,12 @@ func TestSecurityPolicy(t *testing.T) {
 
 // TestSecurityPolicyBasicTraffic verifies that the basic traffic of security policy.
 // This is the very basic, blocking all in and out traffic between pods should take effect.
-// NOTE: This test must NOT run in parallel with testSecurityPolicyAddDeleteRule - both use isolate-policy-1
 func testSecurityPolicyBasicTraffic(t *testing.T) {
-	// Do NOT run in parallel - conflicts with testSecurityPolicyAddDeleteRule (same policy name)
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
 	defer deadlineCancel()
 
-	// Use pre-created namespace (shared with other security policy tests)
-	ns := NsSecurityPolicy
+	// Use dedicated pre-created VC namespace
+	ns := NsSecurityPolicyBasic
 	securityPolicyName := "isolate-policy-1"
 	ruleName0 := "all_ingress_isolation"
 	ruleName1 := "all_egress_isolation"
@@ -143,14 +179,12 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 // TestSecurityPolicyAddDeleteRule verifies that when adding or deleting rule, the security policy will be updated.
 // This is once a bug which is fixed later. When adding or deleting rule of one security policy repeatedly,
 // the nsx-t side should keep consistent.
-// NOTE: This test must NOT run in parallel with testSecurityPolicyBasicTraffic - both use isolate-policy-1
 func testSecurityPolicyAddDeleteRule(t *testing.T) {
-	// Do NOT run in parallel - conflicts with testSecurityPolicyBasicTraffic (same policy name)
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
 	defer deadlineCancel()
 
-	// Use pre-created namespace (shared with other security policy tests)
-	ns := NsSecurityPolicy
+	// Use dedicated pre-created VC namespace
+	ns := NsSecurityPolicyAddDeleteRule
 	securityPolicyName := "isolate-policy-1"
 	ruleName0 := "all_ingress_isolation"
 	ruleName1 := "all_egress_isolation"
@@ -199,14 +233,12 @@ func testSecurityPolicyAddDeleteRule(t *testing.T) {
 // TestSecurityPolicyMatchExpression verifies that the traffic of security policy when match expression applied.
 // This test is to verify the match expression, NotIn/In operator feature of security policy. It should apply
 // to the specified pod.
-// NOTE: This test must NOT run in parallel with testSecurityPolicyBasicTraffic/AddDeleteRule - all use NsSecurityPolicy
 func testSecurityPolicyMatchExpression(t *testing.T) {
-	// Do NOT run in parallel - shares NsSecurityPolicy namespace where other tests create isolation policies
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
 	defer deadlineCancel()
 
-	// Use pre-created namespace (shared with other security policy tests)
-	ns := NsSecurityPolicy
+	// Use dedicated pre-created VC namespace
+	ns := NsSecurityPolicyMatchExpr
 	securityPolicyName := "expression-policy-1"
 	ruleName := "expression-policy-1-rule"
 
@@ -279,12 +311,13 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 }
 
 // testSecurityPolicyVPCFromFieldIngress verifies VPC SecurityPolicy ingress rules using the preferred `from`
-// field (crd.nsx.vmware.com/v1alpha1). Shares NsSecurityPolicy; must stay in SequentialTests.
+// field (crd.nsx.vmware.com/v1alpha1).
 func testSecurityPolicyVPCFromFieldIngress(t *testing.T) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
 	defer deadlineCancel()
 
-	ns := NsSecurityPolicy
+	// Use dedicated pre-created VC namespace
+	ns := NsSecurityPolicyVPCFromIngress
 	securityPolicyName := "vpc-from-field-policy-1"
 	ruleAllow := "sp_from_allow"
 	ruleDrop := "sp_from_drop"
@@ -344,7 +377,8 @@ func testSecurityPolicyVPCToFieldEgress(t *testing.T) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
 	defer deadlineCancel()
 
-	ns := NsSecurityPolicy
+	// Use dedicated pre-created VC namespace
+	ns := NsSecurityPolicyVPCToEgress
 	securityPolicyName := "vpc-to-field-policy-1"
 	ruleAllow := "sp_to_allow"
 	ruleDrop := "sp_to_drop"
@@ -403,21 +437,15 @@ func testSecurityPolicyVPCToFieldEgress(t *testing.T) {
 // TestSecurityPolicyNamedPortWithoutPod verifies that the traffic of security policy when named port applied.
 // This test is to verify the named port feature of security policy.
 // When appliedTo is in policy level and there's no pod holding the related named ports.
-// NOTE: This test must NOT run in parallel with testSecurityPolicyNamedPorWithPod - both use same namespace and deployment label
 func testSecurityPolicyNamedPortWithoutPod(t *testing.T) {
-	// Do NOT run in parallel - conflicts with testSecurityPolicyNamedPorWithPod (same namespace and deployment)
-	// Use pre-created namespaces (shared with testSecurityPolicyNamedPorWithPod)
-	nsClient := NsSecurityPolicyNamedPortClient
-	nsWeb := NsSecurityPolicyNamedPortWeb
+	// Use dedicated pre-created VC namespace
+	nsWeb := NsSecurityPolicyNPWithoutPodWeb
 	securityPolicyCRName := "named-port-policy-without-pod"
 	webA := "web"
 	labelWeb := "tcp-deployment"
 	ruleName0 := "named-port-rule"
 	ruleName1 := "all_ingress_isolation"
 	ruleName2 := "all_egress_isolation"
-
-	// Note: using pre-created namespaces, no need to create/delete here
-	_ = nsClient // suppress unused warning, used for documentation
 
 	// Create all
 	yamlPath, _ := filepath.Abs("./manifest/testSecurityPolicy/named-port-without-pod.yaml")
@@ -443,12 +471,10 @@ func testSecurityPolicyNamedPortWithoutPod(t *testing.T) {
 // testSecurityPolicyNamedPorWithPod verifies that the traffic of security policy when named port applied.
 // This test is to verify the named port feature of security policy.
 // When appliedTo is in policy level and there's running pods holding the related named ports.
-// NOTE: This test must NOT run in parallel with testSecurityPolicyNamedPortWithoutPod - both use same namespace and deployment label
 func testSecurityPolicyNamedPorWithPod(t *testing.T) {
-	// Do NOT run in parallel - conflicts with testSecurityPolicyNamedPortWithoutPod (same namespace and deployment)
-	// Use pre-created namespaces
-	nsClient := NsSecurityPolicyNamedPortClient
-	nsWeb := NsSecurityPolicyNamedPortWeb
+	// Use dedicated pre-created VC namespaces
+	nsClient := NsSecurityPolicyNPWithPodClient
+	nsWeb := NsSecurityPolicyNPWithPodWeb
 	securityPolicyCRName := "named-port-policy-with-pod"
 	ruleName0 := "named-port-rule"
 	ruleName1 := "all_ingress_isolation"
@@ -517,13 +543,14 @@ func testNetworkPolicyMultipleIn(t *testing.T) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
 	defer deadlineCancel()
 
-	ns := NsSecurityPolicy
+	// Use dedicated pre-created VC namespace
+	ns := NsNetworkPolicyMultipleIn
 	npName := "test-np-multiple-in"
 
 	// Create pods
 	podPath, _ := filepath.Abs("./manifest/testNetworkPolicy/np_multiple_in_pods.yaml")
 	require.NoError(t, applyYAML(podPath, ns))
-	defer deleteYAML(podPath, "")
+	defer deleteYAML(podPath, ns)
 
 	frontend := "frontend"
 	backend := "backend"
@@ -588,7 +615,8 @@ func testSecurityPolicyNativeInventoryGroup(t *testing.T) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
 	defer deadlineCancel()
 
-	ns := NsSecurityPolicy
+	// Use dedicated pre-created VC namespace
+	ns := NsSecurityPolicyNativeInv
 	securityPolicyName := "native-inv-group-policy-1"
 	ruleAllow := "sp_native_inv_allow"
 	ruleDrop := "sp_native_inv_drop"
