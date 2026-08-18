@@ -5,6 +5,7 @@ package securitypolicy
 
 import (
 	"fmt"
+	"strings"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -34,11 +35,11 @@ func (service *SecurityPolicyService) buildNativeCondition(memberType, value, op
 	return service.buildExpression("Condition", memberType, value, "Tag", operator, scopeOp)
 }
 
-// buildNativeNamespaceCondition builds a Namespace tag condition.
+// buildNativeNamespaceCondition builds a Namespace tag condition for the given memberType.
 // value format: "scope|tag" (e.g., "vm_namespace|ns-uid-123")
-func (service *SecurityPolicyService) buildNativeNamespaceCondition(tagScope, tagValue, operator string) *data.StructValue {
+func (service *SecurityPolicyService) buildNativeNamespaceCondition(memberType, tagScope, tagValue, operator string) *data.StructValue {
 	return service.buildNativeCondition(
-		common.MemberTypeNamespace,
+		memberType,
 		fmt.Sprintf("%s|%s", tagScope, tagValue),
 		operator, "EQUALS",
 	)
@@ -118,13 +119,12 @@ func (service *SecurityPolicyService) buildNativeSelectorConditions(
 			exprCopy := expr
 			inExpr = &exprCopy
 		case v1.LabelSelectorOpNotIn:
-			for _, val := range expr.Values {
-				baseConditions = append(baseConditions, service.buildNativeCondition(
-					memberType,
-					fmt.Sprintf("%s|%s", expr.Key, val),
-					"NOTEQUALS", "EQUALS",
-				))
-			}
+			joinValues := strings.Join(expr.Values[:], ",")
+			baseConditions = append(baseConditions, service.buildNativeCondition(
+				memberType,
+				fmt.Sprintf("%s|%s", expr.Key, joinValues),
+				"NOTIN", "EQUALS",
+			))
 		case v1.LabelSelectorOpExists:
 			baseConditions = append(baseConditions, service.buildNativeCondition(
 				memberType,
@@ -179,7 +179,7 @@ func (service *SecurityPolicyService) updateNativeTargetExpressions(
 	isVM := target.VMSelector != nil
 	nsTagScope := getScopeNamespaceUIDTag(service, isVM)
 	nsUID := string(service.GetNamespaceUID(obj.ObjectMeta.Namespace))
-	baseConditions = append(baseConditions, service.buildNativeNamespaceCondition(nsTagScope, nsUID, "EQUALS"))
+	baseConditions = append(baseConditions, service.buildNativeNamespaceCondition(common.MemberTypeVirtualMachine, nsTagScope, nsUID, "EQUALS"))
 
 	// VM/Pod selector conditions
 	selectorConds, inExpr, err := service.buildNativeSelectorConditions(selector, common.MemberTypeVirtualMachine)
@@ -267,6 +267,7 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 		if len(nsConds) == 0 && nsIn == nil && peer.NamespaceSelector.Size() == 0 {
 			// Empty namespace selector means "all namespaces" — add cluster-scoped namespace condition
 			nsConds = append(nsConds, service.buildNativeNamespaceCondition(
+				common.MemberTypeNamespace,
 				getScopeCluserTag(service), getCluster(service), "EQUALS",
 			))
 		}
@@ -276,7 +277,7 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 		isVM := peer.VMSelector != nil
 		nsTagScope := getScopeNamespaceUIDTag(service, isVM)
 		nsUID := string(service.GetNamespaceUID(obj.ObjectMeta.Namespace))
-		allBaseConditions = append(allBaseConditions, service.buildNativeNamespaceCondition(nsTagScope, nsUID, "EQUALS"))
+		allBaseConditions = append(allBaseConditions, service.buildNativeNamespaceCondition(common.MemberTypeVirtualMachine, nsTagScope, nsUID, "EQUALS"))
 	}
 
 	// Build VM/Pod conditions
@@ -665,7 +666,14 @@ func (service *SecurityPolicyService) buildNativeSecurityPolicy(
 		nsxGroups = append(nsxGroups, *policyGroup)
 	}
 
-	currentSet := sets.Set[string]{}
+	ruleIDs := sets.Set[string]{}
+	groupIDs := sets.Set[string]{}
+	shareIDs := sets.Set[string]{}
+
+	if policyGroup != nil && policyGroup.Id != nil {
+		groupIDs.Insert(*policyGroup.Id)
+	}
+
 	for ruleIdx, r := range obj.Spec.Rules {
 		rule := r
 		expandRules, buildGroups, buildGroupShares, err := service.buildNativeRuleAndGroups(
@@ -676,29 +684,27 @@ func (service *SecurityPolicyService) buildNativeSecurityPolicy(
 		}
 
 		for _, nsxRule := range expandRules {
-			if nsxRule != nil {
-				if !currentSet.Has(*nsxRule.Id) {
-					currentSet.Insert(*nsxRule.Id)
+			if nsxRule != nil && nsxRule.Id != nil {
+				if !ruleIDs.Has(*nsxRule.Id) {
+					ruleIDs.Insert(*nsxRule.Id)
 					nsxRules = append(nsxRules, *nsxRule)
 				}
 			}
 		}
 
-		currentSet.Clear()
 		for _, nsxGroup := range buildGroups {
-			if nsxGroup != nil {
-				if !currentSet.Has(*nsxGroup.Id) {
-					currentSet.Insert(*nsxGroup.Id)
+			if nsxGroup != nil && nsxGroup.Id != nil {
+				if !groupIDs.Has(*nsxGroup.Id) {
+					groupIDs.Insert(*nsxGroup.Id)
 					nsxGroups = append(nsxGroups, *nsxGroup)
 				}
 			}
 		}
 
-		currentSet.Clear()
 		for _, item := range buildGroupShares {
-			if item != nil {
-				if !currentSet.Has(*item.share.Id) {
-					currentSet.Insert(*item.share.Id)
+			if item != nil && item.share != nil && item.share.Id != nil {
+				if !shareIDs.Has(*item.share.Id) {
+					shareIDs.Insert(*item.share.Id)
 					nsxGroupShares = append(nsxGroupShares, *item)
 					nsxShareGroups = append(nsxShareGroups, *item.shareGroup)
 					nsxShares = append(nsxShares, *item.share)
