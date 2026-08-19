@@ -48,9 +48,6 @@ func TestBuildNativeConditions(t *testing.T) {
 
 	m := cond.Fields()
 	require.NotNil(t, m)
-
-	vmCond := service.buildNativeVMTypeCondition(common.VMTypePod)
-	require.NotNil(t, vmCond)
 }
 
 func TestBuildNativeSelectorConditions(t *testing.T) {

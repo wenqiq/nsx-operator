@@ -45,21 +45,6 @@ func (service *SecurityPolicyService) buildNativeNamespaceCondition(memberType, 
 	)
 }
 
-// buildNativeVMTypeCondition builds a VirtualMachine NodeType condition (key=NodeType, not Tag/Type).
-func (service *SecurityPolicyService) buildNativeVMTypeCondition(vmType string) *data.StructValue {
-	return data.NewStructValue(
-		"",
-		map[string]data.DataValue{
-			"resource_type":  data.NewStringValue("Condition"),
-			"member_type":    data.NewStringValue(common.MemberTypeVirtualMachine),
-			"key":            data.NewStringValue("NodeType"),
-			"operator":       data.NewStringValue("EQUALS"),
-			"value":          data.NewStringValue(vmType),
-			"scope_operator": data.NewStringValue("EQUALS"),
-		},
-	)
-}
-
 // buildNativeNestedExpression wraps a list of conditions into a NestedExpression with AND conjunction.
 // Conditions are interleaved with ConjunctionOperator{AND}.
 func (service *SecurityPolicyService) buildNativeNestedExpression(conditions []*data.StructValue) *data.StructValue {
@@ -161,14 +146,11 @@ func (service *SecurityPolicyService) updateNativeTargetExpressions(
 	}
 
 	var selector *v1.LabelSelector
-	var vmType string
 
 	if target.PodSelector != nil {
 		selector = target.PodSelector
-		vmType = common.VMTypePod
 	} else if target.VMSelector != nil {
 		selector = target.VMSelector
-		vmType = common.VMTypeRegular
 	} else {
 		return 0, 0, nil
 	}
@@ -187,9 +169,6 @@ func (service *SecurityPolicyService) updateNativeTargetExpressions(
 		return 0, 0, err
 	}
 	baseConditions = append(baseConditions, selectorConds...)
-
-	// VM type condition
-	baseConditions = append(baseConditions, service.buildNativeVMTypeCondition(vmType))
 
 	addedCount := 0
 	totalConds := 0
@@ -281,25 +260,20 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 	}
 
 	// Build VM/Pod conditions
-	var vmType string
 	if peer.PodSelector != nil {
-		vmType = common.VMTypePod
 		vmConds, vmIn, err := service.buildNativeSelectorConditions(peer.PodSelector, common.MemberTypeVirtualMachine)
 		if err != nil {
 			return 0, 0, err
 		}
 		vmInExpr = vmIn
 		allBaseConditions = append(allBaseConditions, vmConds...)
-		allBaseConditions = append(allBaseConditions, service.buildNativeVMTypeCondition(vmType))
 	} else if peer.VMSelector != nil {
-		vmType = common.VMTypeRegular
 		vmConds, vmIn, err := service.buildNativeSelectorConditions(peer.VMSelector, common.MemberTypeVirtualMachine)
 		if err != nil {
 			return 0, 0, err
 		}
 		vmInExpr = vmIn
 		allBaseConditions = append(allBaseConditions, vmConds...)
-		allBaseConditions = append(allBaseConditions, service.buildNativeVMTypeCondition(vmType))
 	}
 
 	nsVals := []string{""}
