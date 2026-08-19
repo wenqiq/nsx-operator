@@ -318,7 +318,6 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 }
 
 // buildNativePolicyGroup builds the policy-level applied-to group using inventory-based expressions.
-// All groups are placed under Project Infra scope.
 func (service *SecurityPolicyService) buildNativePolicyGroup(
 	obj *v1alpha1.SecurityPolicy,
 	createdFor string,
@@ -344,7 +343,7 @@ func (service *SecurityPolicyService) buildNativePolicyGroup(
 		}
 	}
 
-	groupPath, err := service.buildNativeGroupPath(groupID, vpcInfo)
+	groupPath, err := service.buildAppliedGroupPath(obj, groupID, vpcInfo)
 	if err != nil {
 		return nil, "", err
 	}
@@ -363,7 +362,7 @@ func (service *SecurityPolicyService) buildNativeRuleAppliedGroupByRule(
 	ruleAppliedGroupID, ruleAppliedGroupName := service.buildAppliedGroupIDAndName(obj, ruleIdx, ruleBaseID, createdFor)
 
 	targetTags := service.buildTargetTags(obj, &appliedTo, ruleBaseID, createdFor)
-	ruleAppliedGroupPath, err := service.buildNativeGroupPath(ruleAppliedGroupID, vpcInfo)
+	ruleAppliedGroupPath, err := service.buildAppliedGroupPath(obj, ruleAppliedGroupID, vpcInfo)
 	if err != nil {
 		return nil, "", err
 	}

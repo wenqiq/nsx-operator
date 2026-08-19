@@ -13,7 +13,6 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -184,18 +183,8 @@ func TestBuildNativeSecurityPolicy(t *testing.T) {
 				Cluster: &nsx.Cluster{},
 			},
 		},
-		securityPolicyStore: &SecurityPolicyStore{
-			ResourceStore: common.ResourceStore{
-				Indexer: cache.NewIndexer(
-					keyFunc,
-					cache.Indexers{
-						common.TagScopeNamespace: indexBySecurityPolicyNamespace,
-					},
-				),
-				BindingType: model.SecurityPolicyBindingType(),
-			},
-		},
 	}
+	service.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 	patchesNSUID := gomonkey.ApplyMethod(reflect.TypeOf(&service.Service), "GetNamespaceUID", func(_ *common.Service, ns string) types.UID {
 		return "ns-uid-123"
 	})
@@ -243,4 +232,21 @@ func TestBuildNativeSecurityPolicy(t *testing.T) {
 	assert.Equal(t, "sp_uid-sp-123", *policyModel.Id)
 	assert.Len(t, policyModel.Rules, 1)
 	assert.GreaterOrEqual(t, len(*groups), 1)
+
+	// Test VPC mode
+	config.SetMixedModeStateForTest(false, true)
+	defer config.SetMixedModeStateForTest(false, false)
+
+	vpcInfo := &common.VPCResourceInfo{
+		OrgID:     "default",
+		ProjectID: "project-1",
+		VPCID:     "vpc-1",
+	}
+	policyModelVPC, groupsVPC, sharesVPC, err := service.buildNativeSecurityPolicy(sp, common.ResourceTypeSecurityPolicy, vpcInfo)
+	require.NoError(t, err)
+	require.NotNil(t, policyModelVPC)
+	require.NotNil(t, groupsVPC)
+	require.NotNil(t, sharesVPC)
+	require.NotNil(t, (*groupsVPC)[0].Path)
+	assert.Equal(t, "/orgs/default/projects/project-1/vpcs/vpc-1/groups/native-sp-scope_r91b0", *(*groupsVPC)[0].Path)
 }
