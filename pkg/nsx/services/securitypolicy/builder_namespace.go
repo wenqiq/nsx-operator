@@ -45,9 +45,17 @@ func (service *SecurityPolicyService) buildNativeNamespaceCondition(memberType, 
 	)
 }
 
-// buildNativeNestedExpression wraps a list of conditions into a NestedExpression with AND conjunction.
-// Conditions are interleaved with ConjunctionOperator{AND}.
+// buildNativeNestedExpression wraps a list of conditions.
+// If there is only 1 condition, return it directly without a NestedExpression wrapper.
+// If there are multiple conditions, wrap them into a NestedExpression with AND conjunctions.
 func (service *SecurityPolicyService) buildNativeNestedExpression(conditions []*data.StructValue) *data.StructValue {
+	if len(conditions) == 0 {
+		return nil
+	}
+	if len(conditions) == 1 {
+		return conditions[0]
+	}
+
 	expressions := data.NewListValue()
 	for i, cond := range conditions {
 		if i > 0 {
@@ -179,10 +187,12 @@ func (service *SecurityPolicyService) updateNativeTargetExpressions(
 
 	if inExpr == nil || len(inExpr.Values) == 0 {
 		nested := service.buildNativeNestedExpression(baseConditions)
-		service.appendOperatorIfNeeded(&group.Expression, "OR")
-		group.Expression = append(group.Expression, nested)
-		addedCount = 1
-		totalConds = len(baseConditions)
+		if nested != nil {
+			service.appendOperatorIfNeeded(&group.Expression, "OR")
+			group.Expression = append(group.Expression, nested)
+			addedCount = 1
+			totalConds = len(baseConditions)
+		}
 	} else {
 		for _, val := range inExpr.Values {
 			branchConds := append([]*data.StructValue{}, baseConditions...)
@@ -192,10 +202,12 @@ func (service *SecurityPolicyService) updateNativeTargetExpressions(
 				"EQUALS", "EQUALS",
 			))
 			nested := service.buildNativeNestedExpression(branchConds)
-			service.appendOperatorIfNeeded(&group.Expression, "OR")
-			group.Expression = append(group.Expression, nested)
-			addedCount++
-			totalConds += len(branchConds)
+			if nested != nil {
+				service.appendOperatorIfNeeded(&group.Expression, "OR")
+				group.Expression = append(group.Expression, nested)
+				addedCount++
+				totalConds += len(branchConds)
+			}
 		}
 	}
 
@@ -305,10 +317,12 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 				))
 			}
 			nested := service.buildNativeNestedExpression(branchConds)
-			service.appendOperatorIfNeeded(&group.Expression, "OR")
-			group.Expression = append(group.Expression, nested)
-			addedCount++
-			totalConds += len(branchConds)
+			if nested != nil {
+				service.appendOperatorIfNeeded(&group.Expression, "OR")
+				group.Expression = append(group.Expression, nested)
+				addedCount++
+				totalConds += len(branchConds)
+			}
 		}
 	}
 
