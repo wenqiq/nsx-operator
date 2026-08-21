@@ -167,12 +167,6 @@ func (service *SecurityPolicyService) updateNativeTargetExpressions(
 
 	var baseConditions []*data.StructValue
 
-	// Namespace condition: scope to the SecurityPolicy's own namespace
-	isVM := target.VMSelector != nil
-	nsTagScope := getScopeNamespaceUIDTag(service, isVM)
-	nsUID := string(service.GetNamespaceUID(obj.ObjectMeta.Namespace))
-	baseConditions = append(baseConditions, service.buildNativeNamespaceCondition(common.MemberTypeVirtualMachine, nsTagScope, nsUID, "EQUALS"))
-
 	// VM/Pod selector conditions
 	selectorConds, inExpr, err := service.buildNativeSelectorConditions(selector, common.MemberTypeVirtualMachine)
 	if err != nil {
@@ -261,12 +255,6 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 			))
 		}
 		allBaseConditions = append(allBaseConditions, nsConds...)
-	} else {
-		// No namespace selector: scope to the SecurityPolicy's own namespace
-		isVM := peer.VMSelector != nil
-		nsTagScope := getScopeNamespaceUIDTag(service, isVM)
-		nsUID := string(service.GetNamespaceUID(obj.ObjectMeta.Namespace))
-		allBaseConditions = append(allBaseConditions, service.buildNativeNamespaceCondition(common.MemberTypeVirtualMachine, nsTagScope, nsUID, "EQUALS"))
 	}
 
 	// Build VM/Pod conditions

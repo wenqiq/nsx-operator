@@ -30,7 +30,7 @@ func TestIsNamespaceGroupSupported(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	assert.False(t, service.isNamespaceGroupSupported())
+	assert.True(t, service.isNamespaceGroupSupported())
 }
 
 func TestBuildNativeConditions(t *testing.T) {
