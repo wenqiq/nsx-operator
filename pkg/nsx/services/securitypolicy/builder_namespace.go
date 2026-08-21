@@ -64,13 +64,21 @@ func (service *SecurityPolicyService) buildNativeNestedExpression(conditions []*
 	)
 }
 
+func formatNativeTagScope(key string, memberType string) string {
+	if memberType == common.MemberTypeVirtualMachine && !strings.HasPrefix(key, "K8sTag/") {
+		return fmt.Sprintf("K8sTag/%s", key)
+	}
+	return key
+}
+
 // buildNativeMatchLabelsConditions converts matchLabels into a list of tag conditions for the given memberType.
 func (service *SecurityPolicyService) buildNativeMatchLabelsConditions(matchLabels map[string]string, memberType string) []*data.StructValue {
 	var conditions []*data.StructValue
 	for k, v := range *util.NormalizeLabels(&matchLabels) {
+		tagScope := formatNativeTagScope(k, memberType)
 		conditions = append(conditions, service.buildNativeCondition(
 			memberType,
-			fmt.Sprintf("%s|%s", k, v),
+			fmt.Sprintf("%s|%s", tagScope, v),
 			"EQUALS", "EQUALS",
 		))
 	}
@@ -99,27 +107,29 @@ func (service *SecurityPolicyService) buildNativeSelectorConditions(
 
 	for i := range selector.MatchExpressions {
 		expr := selector.MatchExpressions[i]
+		tagScope := formatNativeTagScope(expr.Key, memberType)
 		switch expr.Operator {
 		case v1.LabelSelectorOpIn:
 			exprCopy := expr
+			exprCopy.Key = tagScope
 			inExpr = &exprCopy
 		case v1.LabelSelectorOpNotIn:
 			joinValues := strings.Join(expr.Values[:], ",")
 			baseConditions = append(baseConditions, service.buildNativeCondition(
 				memberType,
-				fmt.Sprintf("%s|%s", expr.Key, joinValues),
+				fmt.Sprintf("%s|%s", tagScope, joinValues),
 				"NOTIN", "EQUALS",
 			))
 		case v1.LabelSelectorOpExists:
 			baseConditions = append(baseConditions, service.buildNativeCondition(
 				memberType,
-				fmt.Sprintf("%s|", expr.Key),
+				fmt.Sprintf("%s|", tagScope),
 				"EQUALS", "EQUALS",
 			))
 		case v1.LabelSelectorOpDoesNotExist:
 			baseConditions = append(baseConditions, service.buildExpression(
 				"Condition", memberType,
-				fmt.Sprintf("%s|", expr.Key),
+				fmt.Sprintf("%s|", tagScope),
 				"Tag", "", "NOTEQUALS",
 			))
 		default:

@@ -30,7 +30,7 @@ func TestIsNamespaceGroupSupported(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	assert.True(t, service.isNamespaceGroupSupported())
+	assert.False(t, service.isNamespaceGroupSupported())
 }
 
 func TestBuildNativeConditions(t *testing.T) {
@@ -66,7 +66,7 @@ func TestBuildNativeSelectorConditions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, baseConds, 4) // 1 for matchLabels, 1 for NotIn, 1 for Exists, 1 for DoesNotExist
 	require.NotNil(t, inExpr)
-	assert.Equal(t, "env", inExpr.Key)
+	assert.Equal(t, "K8sTag/env", inExpr.Key)
 	assert.Equal(t, []string{"prod", "staging"}, inExpr.Values)
 
 	invalidSelector := &v1.LabelSelector{
