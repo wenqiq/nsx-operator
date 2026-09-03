@@ -115,21 +115,22 @@ func (r *DNSRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	r.StatusUpdater.IncreaseUpdateTotal()
 
+	needsUpdate := false
 	if !controllerutil.ContainsFinalizer(obj, servicecommon.DNSRecordFinalizerName) {
 		controllerutil.AddFinalizer(obj, servicecommon.DNSRecordFinalizerName)
-		if err := r.Client.Update(ctx, obj); err != nil {
-			log.Error(err, "Failed to add finalizer to DNSRecord CR", "DNSRecord", req.NamespacedName)
-			r.StatusUpdater.UpdateFail(ctx, obj, err, "Failed to add finalizer", setDNSRecordReadyStatusFalse)
-			return ResultRequeue, err
-		}
+		needsUpdate = true
 	}
 
 	computedFQDN := calculateFQDN(obj.Spec.RecordName, obj.Spec.DomainName)
 	if obj.Spec.FQDN != computedFQDN {
 		obj.Spec.FQDN = computedFQDN
+		needsUpdate = true
+	}
+
+	if needsUpdate {
 		if err := r.Client.Update(ctx, obj); err != nil {
-			log.Error(err, "Failed to update FQDN on DNSRecord CR", "DNSRecord", req.NamespacedName)
-			r.StatusUpdater.UpdateFail(ctx, obj, err, "Failed to update FQDN", setDNSRecordReadyStatusFalse)
+			log.Error(err, "Failed to update finalizer/FQDN on DNSRecord CR", "DNSRecord", req.NamespacedName)
+			r.StatusUpdater.UpdateFail(ctx, obj, err, "Failed to update finalizer/FQDN", setDNSRecordReadyStatusFalse)
 			return ResultRequeue, err
 		}
 	}
