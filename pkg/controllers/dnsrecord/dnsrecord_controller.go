@@ -35,6 +35,9 @@ var (
 )
 
 // DNSRecordReconciler reconciles a DNSRecord object
+// +kubebuilder:rbac:groups=crd.nsx.vmware.com,resources=dnsrecords,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=crd.nsx.vmware.com,resources=dnsrecords/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=crd.nsx.vmware.com,resources=dnsrecords/finalizers,verbs=update
 type DNSRecordReconciler struct {
 	Client        client.Client
 	Scheme        *runtime.Scheme
