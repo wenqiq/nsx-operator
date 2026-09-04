@@ -123,6 +123,22 @@ func TestParseDnsZonePath_table(t *testing.T) {
 			wantZone:   "zone-1",
 		},
 		{
+			name:       "valid project dns forwarder zone path",
+			path:       "/orgs/default/projects/project-quality/infra/dns-forwarder-zones/default-dns-service",
+			wantOrg:    "default",
+			wantProj:   "project-quality",
+			wantDNSSvc: "infra",
+			wantZone:   "default-dns-service",
+		},
+		{
+			name:       "valid infra dns forwarder zone path",
+			path:       "/infra/dns-forwarder-zones/example-zone",
+			wantOrg:    "default",
+			wantProj:   "default",
+			wantDNSSvc: "infra",
+			wantZone:   "example-zone",
+		},
+		{
 			name:    "wrong segment (vpcs instead of dns-services)",
 			path:    "/orgs/a/projects/p/vpcs/vpc1/zones/z",
 			wantErr: true,
