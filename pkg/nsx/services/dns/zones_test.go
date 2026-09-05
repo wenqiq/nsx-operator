@@ -46,10 +46,11 @@ func TestZonePathForHostnameFromMap_table(t *testing.T) {
 			wantPath:   "/z",
 		},
 		{
-			name:     "apex_hostname_rejected_even_with_trailing_dot_and_mixed_case",
-			zones:    map[string]string{"/z": "example.com"},
-			hostname: "EXAMPLE.COM.",
-			errSub:   "must not equal to the allowed DNS domain",
+			name:       "apex_hostname_allowed_with_trailing_dot_and_mixed_case",
+			zones:      map[string]string{"/z": "example.com"},
+			hostname:   "EXAMPLE.COM.",
+			wantRecord: "@",
+			wantPath:   "/z",
 		},
 		{
 			name:     "leading_dot_only_zone_suffix_rejected_normalized_equals_suffix",

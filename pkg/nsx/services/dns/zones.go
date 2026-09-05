@@ -76,7 +76,7 @@ func (s *DNSRecordService) getZonePathForHostname(z extprovider.ZoneIDName, host
 		return "", "", fmt.Errorf("hostname %q does not match any allowed DNS domain in the namespace", hostname)
 	}
 	if normalizedFQDN == matchedDomain {
-		return "", "", fmt.Errorf("hostname %q must not equal to the allowed DNS domain %q", hostname, matchedDomain)
+		return "@", zonePath, nil
 	}
 	suffix := "." + matchedDomain
 	if !strings.HasSuffix(normalizedFQDN, suffix) || normalizedFQDN == suffix {

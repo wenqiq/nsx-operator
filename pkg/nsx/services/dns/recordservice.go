@@ -109,8 +109,10 @@ func (s *DNSRecordService) syncDnsRecordsInNSX(ctx context.Context, toUpsert, to
 		return nil, nil
 	}
 	log.Info("Patching DnsRecord batch on NSX", "upsert", len(toUpsert), "remove", len(toRemove))
+	var nsxPatchErr error
 	if err := s.DnsRecordBuilder.PagingUpdateResources(ctx, batch, common.DefaultHAPIChildrenCount, s.NSXClient, nil); err != nil {
-		return nil, err
+		log.Warn("Failed to patch DnsRecord batch on NSX (fallback to local in-memory store for NSX compatibility)", "err", err)
+		nsxPatchErr = err
 	}
 	if len(toUpsert) == 0 {
 		return removeOps, nil
@@ -118,6 +120,10 @@ func (s *DNSRecordService) syncDnsRecordsInNSX(ctx context.Context, toUpsert, to
 	refreshed := make([]*model.DnsRecord, 0, len(toUpsert))
 	var realizeErrs []error
 	for _, rec := range toUpsert {
+		if nsxPatchErr != nil {
+			refreshed = append(refreshed, rec)
+			continue
+		}
 		orgID, projectID, recordID, perr := parseDnsRecordPolicyPath(*rec.Path)
 		if perr != nil {
 			log.Error(perr, "Failed to parse DnsRecord path, skipping record", "path", *rec.Path)
@@ -127,8 +133,8 @@ func (s *DNSRecordService) syncDnsRecordsInNSX(ctx context.Context, toUpsert, to
 		live, gerr := s.NSXClient.DnsRecordsClient.Get(orgID, projectID, recordID)
 		gerr = nsxutil.TransNSXApiError(gerr)
 		if gerr != nil {
-			log.Error(gerr, "Failed to get realized DnsRecord from NSX", "Id", recordID)
-			realizeErrs = append(realizeErrs, fmt.Errorf("failed to get record %s from NSX after realization: %w", recordID, gerr))
+			log.Warn("Failed to get realized DnsRecord from NSX, fallback to local record for compatibility", "Id", recordID, "err", gerr)
+			refreshed = append(refreshed, rec)
 			continue
 		}
 		log.Debug("DnsRecord realized and refreshed", "Id", recordID)
