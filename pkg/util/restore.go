@@ -119,7 +119,11 @@ func updateRestoreEndTime(k8sClient client.Client) error {
 			return err
 		}
 		annotations := obj.GetAnnotations()
+		if annotations == nil {
+			annotations = make(map[string]string)
+		}
 		annotations[AnnotationRestoreEndTime] = strconv.Itoa(int(time.Now().UnixMilli()))
+		delete(annotations, AnnotationForceRestore)
 		obj.SetAnnotations(annotations)
 		return k8sClient.Update(ctx, obj)
 	})

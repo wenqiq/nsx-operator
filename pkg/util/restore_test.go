@@ -202,7 +202,7 @@ func TestUpdateRestoreEndTime(t *testing.T) {
 
 	now := time.Now().UnixMilli()
 	k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
-		obj.SetAnnotations(map[string]string{AnnotationRestoreEndTime: "-1"})
+		obj.SetAnnotations(map[string]string{AnnotationRestoreEndTime: "-1", AnnotationForceRestore: "true"})
 		return nil
 	})
 	k8sClient.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, obj client.Object, option ...client.UpdateOption) error {
@@ -210,6 +210,7 @@ func TestUpdateRestoreEndTime(t *testing.T) {
 		lastRestoreTime, err := strconv.ParseInt(anno[AnnotationRestoreEndTime], 10, 64)
 		assert.Nil(t, err)
 		assert.LessOrEqual(t, now, lastRestoreTime)
+		assert.NotContains(t, anno, AnnotationForceRestore)
 		return nil
 	})
 
