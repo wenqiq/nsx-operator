@@ -3,6 +3,8 @@ package subnetbinding
 import (
 	"context"
 	"reflect"
+	"sort"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
@@ -47,7 +49,15 @@ var PredicateFuncsForSubnetSets = predicate.Funcs{
 		if !oldOK || !newOK {
 			return false
 		}
-		return !reflect.DeepEqual(oldObj.Status.Subnets, newObj.Status.Subnets)
+		oldSubnets := append([]v1alpha1.SubnetInfo(nil), oldObj.Status.Subnets...)
+		newSubnets := append([]v1alpha1.SubnetInfo(nil), newObj.Status.Subnets...)
+		sort.Slice(oldSubnets, func(i, j int) bool {
+			return subnetInfoKey(oldSubnets[i]) < subnetInfoKey(oldSubnets[j])
+		})
+		sort.Slice(newSubnets, func(i, j int) bool {
+			return subnetInfoKey(newSubnets[i]) < subnetInfoKey(newSubnets[j])
+		})
+		return !reflect.DeepEqual(oldSubnets, newSubnets)
 	},
 	DeleteFunc: func(e event.DeleteEvent) bool {
 		return false
@@ -55,6 +65,10 @@ var PredicateFuncsForSubnetSets = predicate.Funcs{
 	GenericFunc: func(e event.GenericEvent) bool {
 		return false
 	},
+}
+
+func subnetInfoKey(info v1alpha1.SubnetInfo) string {
+	return strings.Join(info.NetworkAddresses, "\x00")
 }
 
 func requeueBindingMapsBySubnetUpdate(ctx context.Context, c client.Client, _, objNew client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {

@@ -16,12 +16,19 @@ func (m *SubnetConnectionBindingMap) Key() string {
 }
 
 func (m *SubnetConnectionBindingMap) Value() data.DataValue {
+	// NSX treats an omitted SubnetAssociation as TRUNK. Normalize the effective
+	// value before comparison so nil and explicit TRUNK are semantically equal.
+	association := m.SubnetAssociation
+	if association == nil || *association == "" {
+		trunk := model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_TRUNK
+		association = &trunk
+	}
 	s := &SubnetConnectionBindingMap{
 		Id:                m.Id,
 		DisplayName:       m.DisplayName,
 		Tags:              m.Tags,
 		SubnetPath:        m.SubnetPath,
-		SubnetAssociation: m.SubnetAssociation,
+		SubnetAssociation: association,
 		VlanTrafficTag:    m.VlanTrafficTag,
 	}
 	dataValue, _ := ComparableToSubnetConnectionBindingMap(s).GetDataValue__()

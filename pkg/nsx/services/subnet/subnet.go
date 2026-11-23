@@ -413,6 +413,11 @@ func (service *SubnetService) GetSubnetStatus(subnet *model.VpcSubnet) ([]model.
 func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) error {
 	var subnetInfoList []v1alpha1.SubnetInfo
 	nsxSubnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetSetCRUID, string(obj.GetUID()))
+	// The indexer does not guarantee a stable order. SubnetSet.status.subnets is
+	// a set semantically, so canonicalize the order before comparing/updating it.
+	sort.Slice(nsxSubnets, func(i, j int) bool {
+		return subnetID(nsxSubnets[i]) < subnetID(nsxSubnets[j])
+	})
 	for _, subnet := range nsxSubnets {
 		subnet := subnet
 		statusList, err := service.GetSubnetStatus(subnet)
@@ -456,6 +461,13 @@ func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) err
 		return retryErr
 	}
 	return nil
+}
+
+func subnetID(subnet *model.VpcSubnet) string {
+	if subnet == nil || subnet.Id == nil {
+		return ""
+	}
+	return *subnet.Id
 }
 
 func (service *SubnetService) GetSubnetByKey(key string) (*model.VpcSubnet, error) {

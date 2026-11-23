@@ -138,11 +138,17 @@ func TestPredicateFuncsSubnetSets(t *testing.T) {
 	createEvent := event.CreateEvent{Object: net1}
 	updateEvent1 := event.UpdateEvent{ObjectOld: net1, ObjectNew: net2}
 	updateEvent2 := event.UpdateEvent{ObjectOld: net1, ObjectNew: net3}
+	orderOnlyOld := net3.DeepCopy()
+	orderOnlyOld.Status.Subnets = append(orderOnlyOld.Status.Subnets, v1alpha1.SubnetInfo{NetworkAddresses: []string{"192.168.25.0/24"}})
+	orderOnlyNew := orderOnlyOld.DeepCopy()
+	orderOnlyNew.Status.Subnets[0], orderOnlyNew.Status.Subnets[1] = orderOnlyNew.Status.Subnets[1], orderOnlyNew.Status.Subnets[0]
+	orderOnlyEvent := event.UpdateEvent{ObjectOld: orderOnlyOld, ObjectNew: orderOnlyNew}
 	deleteEvent := event.DeleteEvent{Object: net1}
 	genericEvent := event.GenericEvent{Object: net1}
 	assert.False(t, PredicateFuncsForSubnetSets.CreateFunc(createEvent))
 	assert.False(t, PredicateFuncsForSubnetSets.Update(updateEvent1))
 	assert.True(t, PredicateFuncsForSubnetSets.Update(updateEvent2))
+	assert.False(t, PredicateFuncsForSubnetSets.Update(orderOnlyEvent))
 	assert.False(t, PredicateFuncsForSubnetSets.Delete(deleteEvent))
 	assert.False(t, PredicateFuncsForSubnetSets.GenericFunc(genericEvent))
 }

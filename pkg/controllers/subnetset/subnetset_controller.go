@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -106,6 +107,11 @@ func (r *SubnetSetReconciler) UpdateSubnetSetForSubnetNames(ctx context.Context,
 		subnetInfo.DHCPServerAddresses = subnet.Status.DHCPServerAddresses
 		subnetInfoList = append(subnetInfoList, subnetInfo)
 	}
+	// status.subnets represents a set. Keep its serialized order stable so an
+	// order-only change cannot update the status or notify dependent resources.
+	sort.Slice(subnetInfoList, func(i, j int) bool {
+		return subnetInfoKey(subnetInfoList[i]) < subnetInfoKey(subnetInfoList[j])
+	})
 	if reflect.DeepEqual(subnetsetCR.Status.Subnets, subnetInfoList) {
 		return nil
 	}
@@ -116,6 +122,10 @@ func (r *SubnetSetReconciler) UpdateSubnetSetForSubnetNames(ctx context.Context,
 	}
 	log.Info("Successfully updated SubnetSet with Subnet Status", "Subnets", subnetInfoList)
 	return nil
+}
+
+func subnetInfoKey(info v1alpha1.SubnetInfo) string {
+	return strings.Join(info.NetworkAddresses, "\x00")
 }
 
 func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
