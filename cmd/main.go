@@ -321,7 +321,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 
 	// Add the NSXServiceAccount controller.
 	if cf.EnableAntreaNSXInterworking {
-		reconcilerList = append(reconcilerList, nsxserviceaccountcontroller.NewNSXServiceAccountReconciler(reconcilerMgr, commonService))
+		reconcilerList = append(reconcilerList, nsxserviceaccountcontroller.NewNSXServiceAccountReconciler(reconcilerMgr, commonService, vpcService))
 	}
 
 	if restoreMode {

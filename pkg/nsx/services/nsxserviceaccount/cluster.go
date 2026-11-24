@@ -8,7 +8,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	stderrors "errors"
 	"fmt"
+	"net/url"
 	"reflect"
 	"sync"
 	"time"
@@ -66,6 +68,7 @@ type NSXServiceAccountService struct {
 	common.Service
 	PrincipalIdentityStore   *PrincipalIdentityStore
 	ClusterControlPlaneStore *ClusterControlPlaneStore
+	VPCService               common.VPCServiceProvider
 }
 
 // InitializeNSXServiceAccount sync NSX resources
@@ -278,6 +281,14 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 	vpcName := obj.Namespace + "-default-vpc"
 	vpcPath := fmt.Sprintf("/orgs/default/projects/%s/vpcs/%s", util.NormalizeId(project), vpcName)
 
+	multiTenancy, nativeVPCPath, err := s.desiredTenancy(ctx, obj)
+	if err != nil {
+		return err
+	}
+	if multiTenancy {
+		vpcPath = nativeVPCPath
+	}
+
 	// get proxy
 	proxyEndpoints, err := s.getProxyEndpoints(ctx, obj)
 	if err != nil {
@@ -298,7 +309,12 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 	if obj.Status.ClusterID != "" {
 		existingClusterId = &obj.Status.ClusterID
 	}
-	clusterId, err := s.createPIAndCCP(normalizedClusterName, vpcPath, string(secret.Data[SecretCertName]), existingClusterId, obj)
+	var clusterId string
+	if multiTenancy {
+		clusterId, err = s.ensureNativeRegistration(normalizedClusterName, vpcPath, string(secret.Data[SecretCertName]), existingClusterId, obj)
+	} else {
+		clusterId, err = s.createPIAndCCP(normalizedClusterName, vpcPath, string(secret.Data[SecretCertName]), existingClusterId, obj)
+	}
 	if err != nil {
 		return err
 	}
@@ -319,6 +335,7 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 		latestObj.Status.ClusterName = normalizedClusterName
 		latestObj.Status.Secrets = []v1alpha1.NSXSecret{{Name: secret.Name, Namespace: secret.Namespace}}
 		latestObj.Status.VPCPath = vpcPath
+		latestObj.Status.MultiTenancy = multiTenancy
 		latestObj.Status.ProxyEndpoints = proxyEndpoints
 		if err := s.Client.Status().Update(ctx, latestObj); err != nil {
 			return err
@@ -342,6 +359,17 @@ func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.
 	var pi *mpmodel.PrincipalIdentity
 	if piObj != nil {
 		pi = piObj.(*mpmodel.PrincipalIdentity)
+	}
+	// Migration can stop after deleting the old PI. Resume native reconciliation
+	// before the legacy restore consistency check rejects this recoverable state.
+	if hasCCP && ccpObj != nil && !hasPI && piObj == nil {
+		enabled, _, err := s.desiredTenancy(ctx, obj)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			return s.CreateOrUpdateNSXServiceAccount(ctx, obj)
+		}
 	}
 	// TODO: Generate fresh Secret credentials when recreating PI/CCP during
 	// restore instead of reusing the discovered Secret. Coordinate the new
@@ -405,6 +433,9 @@ func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.
 }
 
 func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, vpcPath string, cert string, existingClusterId *string, obj *v1alpha1.NSXServiceAccount) (string, error) {
+	if obj.Status.MultiTenancy {
+		return s.ensureNativeRegistration(normalizedClusterName, vpcPath, cert, existingClusterId, obj)
+	}
 	hasCCP := len(s.ClusterControlPlaneStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(obj.UID))) > 0
 	ccpObj := s.ClusterControlPlaneStore.GetByKey(normalizedClusterName)
 	if !hasCCP != (ccpObj == nil) {
@@ -759,6 +790,35 @@ func (s *NSXServiceAccountService) ValidateAndUpdateRealizedNSXServiceAccount(ct
 // updateClusterControlPlane shares error handling and cache updates for CCP writes.
 // Callers creating a CCP check capacity backoff; updates must remain available.
 func (s *NSXServiceAccountService) updateClusterControlPlane(name string, ccp model.ClusterControlPlane) (model.ClusterControlPlane, error) {
+	// Older generated SDKs cannot carry scope_path. Preserve it during certificate
+	// rotation / restore instead of issuing a PUT that drops native tenancy fields.
+	if s.NSXConfig != nil && s.NSXConfig.CoeConfig != nil &&
+		(s.NSXConfig.CoeConfig.EnableVPCNetwork || s.VPCService != nil) &&
+		s.NSXClient.NSXCheckVersion(nsx.AntreaMultiTenancy) {
+		path := "policy/api/v1/infra/sites/default/enforcement-points/default/cluster-control-planes/" + url.PathEscape(name)
+		var current map[string]interface{}
+		err := s.NSXClient.Cluster.HttpGetAndDecode(path, &current)
+		if err != nil && !stderrors.Is(err, nsxutil.HttpNotFoundError) {
+			return model.ClusterControlPlane{}, err
+		}
+		if scope, _ := current["scope_path"].(string); err == nil && scope != "" {
+			if ccp.Certificate != nil {
+				current["certificate"] = *ccp.Certificate
+			}
+			if _, err := s.NSXClient.Cluster.HttpPut(path, current); err != nil {
+				if nsxutil.IsCCPConnectionCapacityFullError(err) {
+					MarkCCPConnectionCapacityFull()
+				}
+				return model.ClusterControlPlane{}, err
+			}
+			updated, err := s.NSXClient.ClusterControlPlanesClient.Get(siteId, enforcementpointId, name)
+			if err != nil {
+				return model.ClusterControlPlane{}, nsxutil.TransNSXApiError(err)
+			}
+			s.ClusterControlPlaneStore.Add(&updated)
+			return updated, nil
+		}
+	}
 	updated, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, name, ccp)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {

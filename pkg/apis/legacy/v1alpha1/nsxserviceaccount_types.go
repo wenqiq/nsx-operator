@@ -75,8 +75,10 @@ const (
 
 // NSXServiceAccountStatus defines the observed state of NSXServiceAccount
 type NSXServiceAccountStatus struct {
-	Phase  NSXServiceAccountPhase `json:"phase,omitempty"`
-	Reason string                 `json:"reason,omitempty"`
+	// MultiTenancy is true only after native Project/VPC registration or migration completes.
+	MultiTenancy bool                   `json:"multiTenancy"`
+	Phase        NSXServiceAccountPhase `json:"phase,omitempty"`
+	Reason       string                 `json:"reason,omitempty"`
 	// Represents the realization status of a NSXServiceAccount's current state.
 	// Known .status.conditions.type is: "Realized"
 	Conditions       []metav1.Condition `json:"conditions,omitempty"`

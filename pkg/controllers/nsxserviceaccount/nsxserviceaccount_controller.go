@@ -214,6 +214,11 @@ func (r *NSXServiceAccountReconciler) reconcile(ctx context.Context, req ctrl.Re
 					}
 				}
 			}
+			if restoreDeferred == nil {
+				if err := r.Service.ReconcileMultiTenancy(ctx, obj); err != nil {
+					return ResultRequeue, err
+				}
+			}
 			// These Kubernetes status updates do not consume CCP capacity and must
 			// proceed even when recreating missing NSX resources is deferred.
 			if err := r.Service.UpdateConnectionInfoIfNeeded(ctx, obj); err != nil {
@@ -224,6 +229,9 @@ func (r *NSXServiceAccountReconciler) reconcile(ctx context.Context, req ctrl.Re
 				return restoreResult, restoreDeferred
 			}
 			r.StatusUpdater.UpdateSuccess(ctx, obj, nil)
+			if r.Service.VPCService != nil {
+				return ResultRequeueAfter5mins, nil
+			}
 			return ResultNormal, nil
 		}
 
@@ -398,7 +406,7 @@ func (r *NSXServiceAccountReconciler) StartController(mgr ctrl.Manager, _ webhoo
 	return nil
 }
 
-func NewNSXServiceAccountReconciler(mgr ctrl.Manager, commonService servicecommon.Service) *NSXServiceAccountReconciler {
+func NewNSXServiceAccountReconciler(mgr ctrl.Manager, commonService servicecommon.Service, vpcServices ...servicecommon.VPCServiceProvider) *NSXServiceAccountReconciler {
 	log.Info("Initializing NSXServiceAccountController")
 	nsxServiceAccountReconcile := &NSXServiceAccountReconciler{
 		Client:   mgr.GetClient(),
@@ -409,6 +417,9 @@ func NewNSXServiceAccountReconciler(mgr ctrl.Manager, commonService servicecommo
 	if err != nil {
 		log.Error(err, "Failed to initialize service", "controller", "NSXServiceAccount")
 		os.Exit(1)
+	}
+	if len(vpcServices) > 0 {
+		nsxServiceAccountService.VPCService = vpcServices[0]
 	}
 	nsxServiceAccountReconcile.Service = nsxServiceAccountService
 	nsxServiceAccountReconcile.StatusUpdater = common.NewStatusUpdater(nsxServiceAccountReconcile.Client, nsxServiceAccountReconcile.Service.NSXConfig, nsxServiceAccountReconcile.Recorder, common.MetricResTypeNSXServiceAccount, "ServiceAccount", "NSXServiceAccount")

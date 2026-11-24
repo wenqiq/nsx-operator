@@ -21,6 +21,7 @@ import (
 	"time"
 
 	policyclient "github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
@@ -502,6 +503,42 @@ func (cluster *Cluster) HttpPost(url string, requestBody interface{}) (map[strin
 	return respJson, err
 }
 
+// HttpPut sends a JSON PUT through the authenticated cluster transport.
+func (cluster *Cluster) HttpPut(url string, requestBody interface{}) (map[string]interface{}, error) {
+	resp, err := cluster.httpAction(url, "PUT", requestBody)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var detail struct {
+			Code    int64  `json:"error_code"`
+			Message string `json:"error_message"`
+			Related []struct {
+				Code    int64  `json:"error_code"`
+				Message string `json:"error_message"`
+			} `json:"related_errors"`
+		}
+		if err := json.Unmarshal(body, &detail); err != nil {
+			return nil, fmt.Errorf("NSX PUT failed with HTTP %d", resp.StatusCode)
+		}
+		apiError := &model.ApiError{ErrorCode: &detail.Code, ErrorMessage: &detail.Message}
+		for _, related := range detail.Related {
+			apiError.RelatedErrors = append(apiError.RelatedErrors, model.RelatedApiError{ErrorCode: &related.Code, ErrorMessage: &related.Message})
+		}
+		return nil, util.NewNSXApiError(apiError, "")
+	}
+	result := make(map[string]interface{})
+	if len(body) > 0 {
+		err = json.Unmarshal(body, &result)
+	}
+	return result, err
+}
+
 // HttpPatch sends an http PATCH request to the cluster with a JSON body, exported for use
 func (cluster *Cluster) HttpPatch(url string, requestBody interface{}) (map[string]interface{}, error) {
 	resp, err := cluster.httpAction(url, "PATCH", requestBody)
@@ -582,7 +619,7 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 	case SubnetPortSetting:
 		minVersion = nsx920Version
 		validFeature = true
-	case DNSRecord, DNSAutoRecord:
+	case DNSRecord, DNSAutoRecord, AntreaMultiTenancy:
 		minVersion = nsx920Version
 		validFeature = true
 	}

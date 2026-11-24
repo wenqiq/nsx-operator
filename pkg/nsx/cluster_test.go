@@ -616,3 +616,15 @@ func TestFetchLicense(t *testing.T) {
 	assert.Nil(t, err)
 
 }
+
+func TestAntreaMultiTenancyVersion(t *testing.T) {
+	for _, tc := range []struct {
+		version string
+		want    bool
+	}{{"9.1.2", false}, {"9.2.0", true}, {"9.2.1", true}} {
+		t.Run(tc.version, func(t *testing.T) {
+			v := NsxVersion{ProductVersion: tc.version}
+			assert.Equal(t, tc.want, v.featureSupported(AntreaMultiTenancy))
+		})
+	}
+}
