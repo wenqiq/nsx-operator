@@ -509,7 +509,7 @@ func (service *SecurityPolicyService) buildNativeRuleAppliedGroupByRule(
 }
 
 // buildNativeRulePeerGroup builds a rule peer group (source or destination) using inventory-based expressions.
-// In the inventory-based model, groups are placed under Project or Infra scope based on isDefaultProject.
+// Native Namespace conditions require Infra scope rather than Project scope.
 func (service *SecurityPolicyService) buildNativeRulePeerGroup(
 	obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
 	ruleIdx int, ruleBaseID string, isSource bool, createdFor string,
@@ -526,10 +526,7 @@ func (service *SecurityPolicyService) buildNativeRulePeerGroup(
 		ruleDirection = "destination"
 	}
 
-	groupScope := ProjectInfraScopeGroup
-	if IsVPCEnabled(service) && isDefaultProject {
-		groupScope = InfraScopeGroup
-	}
+	groupScope := InfraScopeGroup
 
 	rulePeerGroupID := service.buildRulePeerGroupID(obj, ruleIdx, ruleBaseID, isSource, groupScope)
 	rulePeerGroupName := service.buildRulePeerGroupName(obj, ruleIdx, isSource)

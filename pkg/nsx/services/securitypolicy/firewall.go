@@ -712,6 +712,10 @@ func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alp
 		return err
 	}
 
+	// Native inventory peer groups use Infra scope for every Project because
+	// NSX rejects Namespace conditions in Project groups. The Infra lifecycle
+	// creates shares before VPC references and removes them after references.
+	isDefaultProject = isDefaultProject || service.isNamespaceGroupSupported()
 	finalSecurityPolicy, finalGroups, finalShares, finalShareGroups, isChanged, err := service.getFinalSecurityPolicyResource(obj, createdFor, vpcInfo, isDefaultProject)
 	if err != nil {
 		log.Error(err, "Failed to get SecurityPolicy resources from CR", "securityPolicyUID", obj.UID)
@@ -885,10 +889,20 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(spUID types.UID, i
 		log.Info("Successfully deleted NSX SecurityPolicy and rules only", "nsxSecurityPolicyUID", spUID)
 	}
 
-	if !isDefaultProject {
+	// Clean both scopes: native inventory groups use Infra even for non-default
+	// Projects, and older Project resources may still exist after an update.
+	if !isDefaultProject || len(nsxProjectShares) != 0 || len(nsxProjectShareGroups) != 0 {
 		err = service.deleteNSXSecurityPolicyGroupShare(nsxGroups, nsxProjectShares, nsxProjectShareGroups, &vpcInfo)
-	} else {
+		if err == nil {
+			err = service.applyVPCGroupShareStore(nsxGroups, nsxProjectShares, nsxProjectShareGroups, false)
+		}
+		nsxGroups = nil
+	}
+	if err == nil && (isDefaultProject || len(nsxInfraShares) != 0 || len(nsxInfraShareGroups) != 0) {
 		err = service.deleteNSXSecurityPolicyGroupShareForDefaultProject(nsxGroups, nsxInfraShares, nsxInfraShareGroups, &vpcInfo)
+		if err == nil {
+			err = service.applyVPCGroupShareStore(nsxGroups, nsxInfraShares, nsxInfraShareGroups, true)
+		}
 	}
 	// Ignore error here to make groups/shares to be deleted in GC.
 	// Because NSX SecurityPolicy is deleted, it's unable to get SecurityPolicyUID from SecurityPolicyStore for fetching groups/shares even by requeuing the error.
@@ -896,15 +910,6 @@ func (service *SecurityPolicyService) deleteVPCSecurityPolicy(spUID types.UID, i
 	if err != nil {
 		log.Error(err, "Failed to delete NSX groups and shares after NSX SecurityPolicy is deleted, and the groups and shares will be GC", "nsxSecurityPolicyUID", spUID)
 		return nil
-	}
-
-	if !isDefaultProject {
-		err = service.applyVPCGroupShareStore(nsxGroups, nsxProjectShares, nsxProjectShareGroups, isDefaultProject)
-	} else {
-		err = service.applyVPCGroupShareStore(nsxGroups, nsxInfraShares, nsxInfraShareGroups, isDefaultProject)
-	}
-	if err != nil {
-		return err
 	}
 
 	if isGC {

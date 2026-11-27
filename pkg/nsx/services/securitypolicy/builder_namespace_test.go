@@ -462,6 +462,11 @@ func TestBuildNativeSecurityPolicy(t *testing.T) {
 	require.NotNil(t, sharesVPC)
 	require.NotNil(t, (*groupsVPC)[0].Path)
 	assert.Equal(t, "/orgs/default/projects/project-1/vpcs/vpc-1/groups/native-sp-scope_r91b0", *(*groupsVPC)[0].Path)
+	require.Len(t, *sharesVPC, 1)
+	peerShare := (*sharesVPC)[0]
+	assert.Equal(t, "/infra/domains/default/groups/"+*peerShare.shareGroup.Id, *peerShare.shareGroup.Path)
+	assert.Equal(t, []string{"/orgs/default/projects/project-1"}, peerShare.share.SharedWith)
+	assert.Equal(t, model.Share_SHARING_STRATEGY_ALL_DESCENDANTS, *peerShare.share.SharingStrategy)
 
 	// Test VPC mode with default project (InfraScopeGroup)
 	policyModelVPCDef, groupsVPCDef, sharesVPCDef, err := service.buildNativeSecurityPolicy(sp, common.ResourceTypeSecurityPolicy, vpcInfo, true)
