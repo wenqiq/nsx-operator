@@ -66,6 +66,28 @@ func TestBuildNativeConditions(t *testing.T) {
 	require.NotNil(t, vmTypeCond)
 }
 
+func TestNativeNamespaceMemberType(t *testing.T) {
+	service := &SecurityPolicyService{}
+	config.SetMixedModeStateForTest(false, true)
+	defer config.SetMixedModeStateForTest(false, false)
+	for _, vpcMode := range []bool{false, true} {
+		service.VPCMode = vpcMode
+		want := common.MemberTypeNamespace
+		if vpcMode {
+			want = common.MemberTypeSupervisorNamespace
+		}
+		condition := service.buildNativeNamespaceCondition("namespace", "uid", "EQUALS")
+		memberType, err := condition.String("member_type")
+		require.NoError(t, err)
+		assert.Equal(t, want, memberType)
+		// Selector and expanded In branches use the same condition builder.
+		condition = service.buildNativeCondition(common.MemberTypeNamespace, "K8sTag/env|prod", "EQUALS", "EQUALS")
+		memberType, err = condition.String("member_type")
+		require.NoError(t, err)
+		assert.Equal(t, want, memberType)
+	}
+}
+
 func TestBuildNativeSelectorConditions(t *testing.T) {
 	service := &SecurityPolicyService{}
 

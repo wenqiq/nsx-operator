@@ -199,10 +199,11 @@ const (
 	// (full path: /orgs/{org}/projects/{project}/dns-records/{id}). Must match PolicyResourceDnsRecord.PathKey.
 	PathSegmentDnsRecords = "dns-records"
 
-	MemberTypeNamespace      = "Namespace"
-	MemberTypeVirtualMachine = "VirtualMachine"
-	VMTypePod                = "POD"
-	VMTypeRegular            = "REGULAR"
+	MemberTypeNamespace           = "Namespace"
+	MemberTypeSupervisorNamespace = "SupervisorNamespace"
+	MemberTypeVirtualMachine      = "VirtualMachine"
+	VMTypePod                     = "POD"
+	VMTypeRegular                 = "REGULAR"
 )
 
 var (
