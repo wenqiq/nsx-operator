@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -41,15 +42,16 @@ var (
 
 type SecurityPolicyService struct {
 	common.Service
-	VPCMode             bool
-	securityPolicyStore *SecurityPolicyStore
-	ruleStore           *RuleStore
-	groupStore          *GroupStore
-	infraGroupStore     *GroupStore
-	infraShareStore     *ShareStore
-	projectGroupStore   *GroupStore
-	projectShareStore   *ShareStore
-	vpcService          common.VPCServiceProvider
+	VPCMode              bool
+	nativeGroupsRejected atomic.Bool
+	securityPolicyStore  *SecurityPolicyStore
+	ruleStore            *RuleStore
+	groupStore           *GroupStore
+	infraGroupStore      *GroupStore
+	infraShareStore      *ShareStore
+	projectGroupStore    *GroupStore
+	projectShareStore    *ShareStore
+	vpcService           common.VPCServiceProvider
 
 	securityPolicyBuilder *common.PolicyTreeBuilder[*model.SecurityPolicy]
 	ruleBuilder           *common.PolicyTreeBuilder[*model.Rule]
@@ -715,7 +717,8 @@ func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alp
 	// Native inventory peer groups use Infra scope for every Project because
 	// NSX rejects Namespace conditions in Project groups. The Infra lifecycle
 	// creates shares before VPC references and removes them after references.
-	isDefaultProject = isDefaultProject || service.isNamespaceGroupSupported()
+	usingNativeGroups := service.isNamespaceGroupSupported()
+	isDefaultProject = isDefaultProject || usingNativeGroups
 	finalSecurityPolicy, finalGroups, finalShares, finalShareGroups, isChanged, err := service.getFinalSecurityPolicyResource(obj, createdFor, vpcInfo, isDefaultProject)
 	if err != nil {
 		log.Error(err, "Failed to get SecurityPolicy resources from CR", "securityPolicyUID", obj.UID)
@@ -735,6 +738,14 @@ func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alp
 	} else {
 		finalGetNSXSecurityPolicy, err = service.createOrUpdateNSXSecurityPolicyForDefaultProject(finalSecurityPolicy, finalGroups, finalShares, finalShareGroups, vpcInfo)
 	}
+	if usingNativeGroups && isNativeGroupCompatibilityError(err) {
+		// Version gating is insufficient on builds that reject mixed inventory
+		// conditions. Cache the rejection and rebuild with the existing selector
+		// implementation, preserving namespace isolation and policy semantics.
+		service.nativeGroupsRejected.Store(true)
+		log.Error(err, "NSX rejected native inventory groups; retrying with compatible selector groups")
+		return service.createOrUpdateVPCSecurityPolicy(obj, createdFor)
+	}
 	if err != nil {
 		return err
 	}
@@ -750,6 +761,15 @@ func (service *SecurityPolicyService) createOrUpdateVPCSecurityPolicy(obj *v1alp
 
 	log.Info("Successfully created or updated NSX SecurityPolicy resources in VPC", "nsxSecurityPolicy", *finalGetNSXSecurityPolicy)
 	return nil
+}
+
+func isNativeGroupCompatibilityError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "nsx error code: 500059") &&
+		strings.Contains(message, "Member type used across all conditions in a nested expression")
 }
 
 func (service *SecurityPolicyService) DeleteSecurityPolicy(spUid types.UID, isGC bool, createdFor string) error {

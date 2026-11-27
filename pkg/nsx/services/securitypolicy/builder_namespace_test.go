@@ -4,6 +4,7 @@
 package securitypolicy
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
@@ -39,6 +40,9 @@ func TestIsNamespaceGroupSupported(t *testing.T) {
 	defer patches.Reset()
 
 	assert.True(t, service.isNamespaceGroupSupported())
+	service.nativeGroupsRejected.Store(true)
+	assert.False(t, service.isNamespaceGroupSupported())
+	service.nativeGroupsRejected.Store(false)
 
 	service.NSXConfig.NsxConfig.VpcWcpEnhance = nil
 	assert.False(t, service.isNamespaceGroupSupported())
@@ -73,9 +77,6 @@ func TestNativeNamespaceMemberType(t *testing.T) {
 	for _, vpcMode := range []bool{false, true} {
 		service.VPCMode = vpcMode
 		want := common.MemberTypeNamespace
-		if vpcMode {
-			want = common.MemberTypeSupervisorNamespace
-		}
 		condition := service.buildNativeNamespaceCondition("namespace", "uid", "EQUALS")
 		memberType, err := condition.String("member_type")
 		require.NoError(t, err)
@@ -86,6 +87,13 @@ func TestNativeNamespaceMemberType(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, want, memberType)
 	}
+}
+
+func TestNativeGroupCompatibilityError(t *testing.T) {
+	assert.False(t, isNativeGroupCompatibilityError(nil))
+	assert.False(t, isNativeGroupCompatibilityError(errors.New("connection timeout")))
+	assert.False(t, isNativeGroupCompatibilityError(errors.New("nsx error code: 255, invalid field")))
+	assert.True(t, isNativeGroupCompatibilityError(errors.New("nsx error code: 500059, message: Member type used across all conditions in a nested expression should be of compatible type")))
 }
 
 func TestBuildNativeSelectorConditions(t *testing.T) {

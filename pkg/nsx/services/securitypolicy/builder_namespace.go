@@ -24,7 +24,7 @@ import (
 // isNamespaceGroupSupported checks whether the NSX backend supports inventory-based
 // Namespace/VirtualMachine member types for group expressions.
 func (service *SecurityPolicyService) isNamespaceGroupSupported() bool {
-	if service.NSXClient == nil || service.NSXClient.Cluster == nil {
+	if service.nativeGroupsRejected.Load() || service.NSXClient == nil || service.NSXClient.Cluster == nil {
 		return false
 	}
 	return nsx.NamespaceGroupFeatureEnabled(service.NSXClient, service.NSXConfig)
@@ -33,12 +33,6 @@ func (service *SecurityPolicyService) isNamespaceGroupSupported() bool {
 // buildNativeCondition builds a Condition expression for inventory-based groups.
 // The NSX API uses: resource_type=Condition, member_type, key=Tag, operator, value=scope|tag, scope_operator.
 func (service *SecurityPolicyService) buildNativeCondition(memberType, value, operator, scopeOp string) *data.StructValue {
-	// PodVMs and regular VMs belong to Supervisor inventory in VPC mode.
-	// Container inventory Namespace conditions cannot be combined with
-	// VirtualMachine conditions in the same NestedExpression.
-	if memberType == common.MemberTypeNamespace && IsVPCEnabled(service) {
-		memberType = common.MemberTypeSupervisorNamespace
-	}
 	condition := service.buildExpression("Condition", memberType, value, "Tag", operator, scopeOp)
 	// Native inventory member types require an explicit operator, including scope-only negation.
 	condition.Fields()["operator"] = data.NewStringValue(operator)
